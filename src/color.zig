@@ -160,7 +160,7 @@ pub const std_illuminant = struct {
 fn getStdIlluminantsCount(comptime decls: anytype) u32 {
     comptime {
         var count = 0;
-        while (count < decls.len and switch (decls[count].data) {.Var => |t| t == xyY, else => false}) {
+        while (decls[count].data == .Var and decls[count].data.Var == xyY) {
             count += 1;
         }
         return count;
