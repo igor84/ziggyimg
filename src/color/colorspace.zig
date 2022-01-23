@@ -178,36 +178,50 @@ pub fn getRGBColorSpaceByName(name: []const u8) ?*const RGBColorSpace {
     return null;
 }
 
+pub fn getRGBColorSpaceByPoints(white: xyY, red: xyY, green: xyY, blue: xyY) ?*const RGBColorSpace {
+    const epsilon = 0.00001;
+    std.debug.print("\n", .{});
+    for (rgbColorSpaces) |space| {
+        if (white.approxEqual(space.white, epsilon) and red.approxEqual(space.red, epsilon)
+                and green.approxEqual(space.green, epsilon) and blue.approxEqual(space.blue, epsilon)) {
+            return space;
+        }
+    }
+    return null;
+}
+
 test "sRGBToLinear" {
+    const epsilon = 0.000001;
     try std.testing.expectEqual(@as(f32, 0), sRGB.toLinear(0));
-    try std.testing.expectApproxEqAbs(@as(f32, 0.000303526983548838), sRGB.toLinear(1/255.0), 0.000001);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.00151763491774419), sRGB.toLinear(5/255.0), 0.000001);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.00699541018726539), sRGB.toLinear(20/255.0), 0.000001);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.0318960330730115), sRGB.toLinear(50/255.0), 0.000001);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.0843762115441488), sRGB.toLinear(82/255.0), 0.000001);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.109461702), sRGB.toLinear(93/255.0), 0.000001);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.165132194501668), sRGB.toLinear(113/255.0), 0.000001);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.296138270798321), sRGB.toLinear(148/255.0), 0.000001);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.450785782838223), sRGB.toLinear(179/255.0), 0.000001);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.590618840919337), sRGB.toLinear(202/255.0), 0.000001);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.879622396887832), sRGB.toLinear(241/255.0), 0.000001);
-    try std.testing.expectApproxEqAbs(@as(f32, 1.0), sRGB.toLinear(255/255.0), 0.000001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.000303526983548838), sRGB.toLinear(1/255.0), epsilon);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.00151763491774419), sRGB.toLinear(5/255.0), epsilon);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.00699541018726539), sRGB.toLinear(20/255.0), epsilon);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0318960330730115), sRGB.toLinear(50/255.0), epsilon);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0843762115441488), sRGB.toLinear(82/255.0), epsilon);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.109461702), sRGB.toLinear(93/255.0), epsilon);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.165132194501668), sRGB.toLinear(113/255.0), epsilon);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.296138270798321), sRGB.toLinear(148/255.0), epsilon);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.450785782838223), sRGB.toLinear(179/255.0), epsilon);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.590618840919337), sRGB.toLinear(202/255.0), epsilon);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.879622396887832), sRGB.toLinear(241/255.0), epsilon);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), sRGB.toLinear(255/255.0), epsilon);
 }
 
 test "LinearTosRGB" {
+    const epsilon = 0.000001;
     try std.testing.expectEqual(@as(f32, 0), sRGB.toGamma(sRGB.toLinear(0)));
-    try std.testing.expectApproxEqAbs(@as(f32, 1/255.0), sRGB.toGamma(sRGB.toLinear(1/255.0)), 0.000001);
-    try std.testing.expectApproxEqAbs(@as(f32, 5/255.0), sRGB.toGamma(sRGB.toLinear(5/255.0)), 0.000001);
-    try std.testing.expectApproxEqAbs(@as(f32, 20/255.0), sRGB.toGamma(sRGB.toLinear(20/255.0)), 0.000001);
-    try std.testing.expectApproxEqAbs(@as(f32, 50/255.0), sRGB.toGamma(sRGB.toLinear(50/255.0)), 0.000001);
-    try std.testing.expectApproxEqAbs(@as(f32, 82/255.0), sRGB.toGamma(sRGB.toLinear(82/255.0)), 0.000001);
-    try std.testing.expectApproxEqAbs(@as(f32, 93/255.0), sRGB.toGamma(sRGB.toLinear(93/255.0)), 0.000001);
-    try std.testing.expectApproxEqAbs(@as(f32, 113/255.0), sRGB.toGamma(sRGB.toLinear(113/255.0)), 0.000001);
-    try std.testing.expectApproxEqAbs(@as(f32, 148/255.0), sRGB.toGamma(sRGB.toLinear(148/255.0)), 0.000001);
-    try std.testing.expectApproxEqAbs(@as(f32, 179/255.0), sRGB.toGamma(sRGB.toLinear(179/255.0)), 0.000001);
-    try std.testing.expectApproxEqAbs(@as(f32, 202/255.0), sRGB.toGamma(sRGB.toLinear(202/255.0)), 0.000001);
-    try std.testing.expectApproxEqAbs(@as(f32, 241/255.0), sRGB.toGamma(sRGB.toLinear(241/255.0)), 0.000001);
-    try std.testing.expectApproxEqAbs(@as(f32, 1.0), sRGB.toGamma(sRGB.toLinear(255/255.0)), 0.000001);
+    try std.testing.expectApproxEqAbs(@as(f32, 1/255.0), sRGB.toGamma(sRGB.toLinear(1/255.0)), epsilon);
+    try std.testing.expectApproxEqAbs(@as(f32, 5/255.0), sRGB.toGamma(sRGB.toLinear(5/255.0)), epsilon);
+    try std.testing.expectApproxEqAbs(@as(f32, 20/255.0), sRGB.toGamma(sRGB.toLinear(20/255.0)), epsilon);
+    try std.testing.expectApproxEqAbs(@as(f32, 50/255.0), sRGB.toGamma(sRGB.toLinear(50/255.0)), epsilon);
+    try std.testing.expectApproxEqAbs(@as(f32, 82/255.0), sRGB.toGamma(sRGB.toLinear(82/255.0)), epsilon);
+    try std.testing.expectApproxEqAbs(@as(f32, 93/255.0), sRGB.toGamma(sRGB.toLinear(93/255.0)), epsilon);
+    try std.testing.expectApproxEqAbs(@as(f32, 113/255.0), sRGB.toGamma(sRGB.toLinear(113/255.0)), epsilon);
+    try std.testing.expectApproxEqAbs(@as(f32, 148/255.0), sRGB.toGamma(sRGB.toLinear(148/255.0)), epsilon);
+    try std.testing.expectApproxEqAbs(@as(f32, 179/255.0), sRGB.toGamma(sRGB.toLinear(179/255.0)), epsilon);
+    try std.testing.expectApproxEqAbs(@as(f32, 202/255.0), sRGB.toGamma(sRGB.toLinear(202/255.0)), epsilon);
+    try std.testing.expectApproxEqAbs(@as(f32, 241/255.0), sRGB.toGamma(sRGB.toLinear(241/255.0)), epsilon);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), sRGB.toGamma(sRGB.toLinear(255/255.0)), epsilon);
 }
 
 test "getByName" {
@@ -219,4 +233,11 @@ test "getByName" {
     for (rgbColorSpaces) |space| {
         try std.testing.expectEqual(space, getRGBColorSpaceByName(space.id).?);
     }
+}
+
+test "getByPoints" {
+    var space = getRGBColorSpaceByPoints(sRGB.white, sRGB.red, sRGB.green, sRGB.blue);
+    try std.testing.expectEqual(&sRGB, space.?);
+    space = getRGBColorSpaceByPoints(rec709.white, rec709.red, rec709.green, rec709.blue);
+    try std.testing.expectEqual(&rec709, space.?);
 }

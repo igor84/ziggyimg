@@ -26,11 +26,11 @@ pub const XYZ = struct {
         return self.Y == other.Y and self.X == other.X and self.Z == other.Z;
     }
 
-    pub inline fn approxEqual(self: xyY, other: xyY) bool {
+    pub inline fn approxEqual(self: xyY, other: xyY, epsilon: f32) bool {
         const math = std.math;
-        return math.approxEqAbs(f32, self.Y, other.Y, math.f32_epsilon)
-            and math.approxEqAbs(f32, self.X, other.X, math.f32_epsilon)
-            and math.approxEqAbs(f32, self.Z, other.Z, math.f32_epsilon);
+        return math.approxEqAbs(f32, self.Y, other.Y, epsilon)
+           and math.approxEqAbs(f32, self.X, other.X, epsilon)
+           and math.approxEqAbs(f32, self.Z, other.Z, epsilon);
     }
 };
 
@@ -60,11 +60,11 @@ pub const xyY = struct {
         return self.Y == other.Y and self.x == other.x and self.y == other.y;
     }
 
-    pub inline fn approxEqual(self: xyY, other: xyY) bool {
+    pub inline fn approxEqual(self: xyY, other: xyY, epsilon: f32) bool {
         const math = std.math;
-        return math.approxEqAbs(f32, self.Y, other.Y, math.f32_epsilon)
-            and math.approxEqAbs(f32, self.x, other.x, math.f32_epsilon)
-            and math.approxEqAbs(f32, self.y, other.y, math.f32_epsilon);
+        return math.approxEqAbs(f32, self.Y, other.Y, epsilon)
+            and math.approxEqAbs(f32, self.x, other.x, epsilon)
+            and math.approxEqAbs(f32, self.y, other.y, epsilon);
     }
 };
 
