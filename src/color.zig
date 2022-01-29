@@ -12,7 +12,7 @@ pub const XYZ = struct {
     Z: f32,
 
     pub fn init(x: f32, y: f32, z: f32) XYZ {
-        return XYZ {.X = x, .Y = y, .Z = z};
+        return XYZ{ .X = x, .Y = y, .Z = z };
     }
 
     pub fn toxyY(self: XYZ) xyY {
@@ -28,9 +28,9 @@ pub const XYZ = struct {
 
     pub inline fn approxEqual(self: xyY, other: xyY, epsilon: f32) bool {
         const math = std.math;
-        return math.approxEqAbs(f32, self.Y, other.Y, epsilon)
-           and math.approxEqAbs(f32, self.X, other.X, epsilon)
-           and math.approxEqAbs(f32, self.Z, other.Z, epsilon);
+        return math.approxEqAbs(f32, self.Y, other.Y, epsilon) and
+            math.approxEqAbs(f32, self.X, other.X, epsilon) and
+            math.approxEqAbs(f32, self.Z, other.Z, epsilon);
     }
 };
 
@@ -46,7 +46,7 @@ pub const xyY = struct {
     Y: f32,
 
     pub fn init(x: f32, y: f32, Y: f32) xyY {
-        return xyY {.x = x, .y = y, .Y = Y};
+        return xyY{ .x = x, .y = y, .Y = Y };
     }
 
     pub fn toXYZ(self: xyY) XYZ {
@@ -62,9 +62,9 @@ pub const xyY = struct {
 
     pub inline fn approxEqual(self: xyY, other: xyY, epsilon: f32) bool {
         const math = std.math;
-        return math.approxEqAbs(f32, self.Y, other.Y, epsilon)
-            and math.approxEqAbs(f32, self.x, other.x, epsilon)
-            and math.approxEqAbs(f32, self.y, other.y, epsilon);
+        return math.approxEqAbs(f32, self.Y, other.Y, epsilon) and
+            math.approxEqAbs(f32, self.x, other.x, epsilon) and
+            math.approxEqAbs(f32, self.y, other.y, epsilon);
     }
 };
 
@@ -81,11 +81,11 @@ test "convert XYZ to xyY" {
 /// The illuminant values as defined on https://en.wikipedia.org/wiki/Standard_illuminant.
 pub const std_illuminant = struct {
     /// Incandescent / Tungsten
-    pub const A =   xyY.init(0.44757, 0.40745, 1.00000);
+    pub const A = xyY.init(0.44757, 0.40745, 1.00000);
     /// [obsolete] Direct sunlight at noon
-    pub const B =   xyY.init(0.34842, 0.35161, 1.00000);
+    pub const B = xyY.init(0.34842, 0.35161, 1.00000);
     /// [obsolete] Average / North sky Daylight
-    pub const C =   xyY.init(0.31006, 0.31616, 1.00000);
+    pub const C = xyY.init(0.31006, 0.31616, 1.00000);
     /// Horizon Light, ICC profile PCS (Profile connection space)
     pub const D50 = xyY.init(0.34567, 0.35850, 1.00000);
     /// Mid-morning / Mid-afternoon Daylight
@@ -101,25 +101,25 @@ pub const std_illuminant = struct {
     /// DCI-P3 digital cinema projector
     pub const DCI = xyY.init(0.31400, 0.35100, 1.00000);
     /// Equal energy
-    pub const E =   xyY.init(1.0/3.0, 1.0/3.0, 1.00000);
+    pub const E = xyY.init(1.0 / 3.0, 1.0 / 3.0, 1.00000);
     /// Daylight Fluorescent
-    pub const F1 =  xyY.init(0.31310, 0.33727, 1.00000);
+    pub const F1 = xyY.init(0.31310, 0.33727, 1.00000);
     /// Cool White Fluorescent
-    pub const F2 =  xyY.init(0.37208, 0.37529, 1.00000);
+    pub const F2 = xyY.init(0.37208, 0.37529, 1.00000);
     /// White Fluorescent
-    pub const F3 =  xyY.init(0.40910, 0.39430, 1.00000);
+    pub const F3 = xyY.init(0.40910, 0.39430, 1.00000);
     /// Warm White Fluorescent
-    pub const F4 =  xyY.init(0.44018, 0.40329, 1.00000);
+    pub const F4 = xyY.init(0.44018, 0.40329, 1.00000);
     /// Daylight Fluorescent
-    pub const F5 =  xyY.init(0.31379, 0.34531, 1.00000);
+    pub const F5 = xyY.init(0.31379, 0.34531, 1.00000);
     /// Lite White Fluorescent
-    pub const F6 =  xyY.init(0.37790, 0.38835, 1.00000);
+    pub const F6 = xyY.init(0.37790, 0.38835, 1.00000);
     /// D65 simulator, Daylight simulator
-    pub const F7 =  xyY.init(0.31292, 0.32933, 1.00000);
+    pub const F7 = xyY.init(0.31292, 0.32933, 1.00000);
     /// D50 simulator, Sylvania F40 Design 50
-    pub const F8 =  xyY.init(0.34588, 0.35875, 1.00000);
+    pub const F8 = xyY.init(0.34588, 0.35875, 1.00000);
     /// Cool White Deluxe Fluorescent
-    pub const F9 =  xyY.init(0.37417, 0.37281, 1.00000);
+    pub const F9 = xyY.init(0.37417, 0.37281, 1.00000);
     /// Philips TL85, Ultralume 50
     pub const F10 = xyY.init(0.34609, 0.35986, 1.00000);
     /// Philips TL84, Ultralume 40
@@ -127,14 +127,8 @@ pub const std_illuminant = struct {
     /// Philips TL83, Ultralume 30
     pub const F12 = xyY.init(0.43695, 0.40441, 1.00000);
 
-    pub const values = [_]xyY{
-        A, B, C, D50, D55, D60, D65, D75, D93, DCI, E,
-        F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12
-    };
-    pub const names = [_][]const u8{
-        "A", "B", "C", "D50", "D55", "D60", "D65", "D75", "D93", "DCI", "E",
-        "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12"
-    };
+    pub const values = [_]xyY{ A, B, C, D50, D55, D60, D65, D75, D93, DCI, E, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12 };
+    pub const names = [_][]const u8{ "A", "B", "C", "D50", "D55", "D60", "D65", "D75", "D93", "DCI", "E", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12" };
 
     pub fn getByName(name: []const u8) ?xyY {
         for (names) |n, index| {
@@ -168,7 +162,7 @@ fn getStdIlluminantsCount(comptime decls: anytype) u32 {
 }
 
 test "Illuminant names" {
-    const decls =  @typeInfo(std_illuminant).Struct.decls;
+    const decls = @typeInfo(std_illuminant).Struct.decls;
     const count = getStdIlluminantsCount(decls);
     try std.testing.expect(std_illuminant.names.len == count);
     inline for (std_illuminant.names) |name, i| {
@@ -177,7 +171,7 @@ test "Illuminant names" {
 }
 
 test "Illuminant values" {
-    const decls =  @typeInfo(std_illuminant).Struct.decls;
+    const decls = @typeInfo(std_illuminant).Struct.decls;
     const count = getStdIlluminantsCount(decls);
     try std.testing.expect(std_illuminant.values.len == count);
     inline for (std_illuminant.values) |value, i| {
