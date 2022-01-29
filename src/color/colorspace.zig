@@ -150,14 +150,14 @@ pub const pal_secam    = RGBColorSpace.init("PAL/SECAM",    "Rec.601",  si.D65, 
 pub const rec709       = RGBColorSpace.init("Rec.709",      "Rec.601",  si.D65, xyY.init(0.6400, 0.3300, 0.212600), xyY.init(0.3000, 0.6000, 0.715200), xyY.init(0.1500, 0.0600, 0.072200));
 pub const rec2020      = RGBColorSpace.init("Rec.2020",     "Rec.2020", si.D65, xyY.init(0.7080, 0.2920, 0.262700), xyY.init(0.1700, 0.7970, 0.678000), xyY.init(0.1310, 0.0460, 0.059300));
 
-pub const adobeRGB     = RGBColorSpace.init("AdobeRGB",     2.2,      si.D65, xyY.init(0.6400, 0.3300, 0.297361), xyY.init(0.2100, 0.7100, 0.627355), xyY.init(0.1500, 0.0600, 0.075285));
-pub const wideGamutRGB = RGBColorSpace.init("WideGamutRGB", 2.2,      si.D50, xyY.init(0.7350, 0.2650, 0.258187), xyY.init(0.1150, 0.8260, 0.724938), xyY.init(0.1570, 0.0180, 0.016875));
-pub const appleRGB     = RGBColorSpace.init("AppleRGB",     1.8,      si.D65, xyY.init(0.6250, 0.3400, 0.244634), xyY.init(0.2800, 0.5950, 0.672034), xyY.init(0.1550, 0.0700, 0.083332));
-pub const proPhoto     = RGBColorSpace.init("ProPhoto",     1.8,      si.D50, xyY.init(0.7347, 0.2653, 0.288040), xyY.init(0.1596, 0.8404, 0.711874), xyY.init(0.0366, 0.0001, 0.000086));
-pub const cieRGB       = RGBColorSpace.init("CIERGB",       2.2,      si.E,   xyY.init(0.7350, 0.2650, 0.176204), xyY.init(0.2740, 0.7170, 0.812985), xyY.init(0.1670, 0.0090, 0.010811));
-pub const p3dci        = RGBColorSpace.init("P3DCI",        2.6,      si.DCI, xyY.init(0.6800, 0.3200, 0.228975), xyY.init(0.2650, 0.6900, 0.691739), xyY.init(0.1500, 0.0600, 0.079287));
-pub const p3d65        = RGBColorSpace.init("P3D65",        2.6,      si.D65, xyY.init(0.6800, 0.3200, 0.228973), xyY.init(0.2650, 0.6900, 0.691752), xyY.init(0.1500, 0.0600, 0.079275));
-pub const p3d60        = RGBColorSpace.init("P3D60",        2.6,      si.D60, xyY.init(0.6800, 0.3200, 0.228973), xyY.init(0.2650, 0.6900, 0.691752), xyY.init(0.1500, 0.0600, 0.079275));
+pub const adobeRGB     = RGBColorSpace.init("AdobeRGB",     2.2,        si.D65, xyY.init(0.6400, 0.3300, 0.297361), xyY.init(0.2100, 0.7100, 0.627355), xyY.init(0.1500, 0.0600, 0.075285));
+pub const wideGamutRGB = RGBColorSpace.init("WideGamutRGB", 2.2,        si.D50, xyY.init(0.7350, 0.2650, 0.258187), xyY.init(0.1150, 0.8260, 0.724938), xyY.init(0.1570, 0.0180, 0.016875));
+pub const appleRGB     = RGBColorSpace.init("AppleRGB",     1.8,        si.D65, xyY.init(0.6250, 0.3400, 0.244634), xyY.init(0.2800, 0.5950, 0.672034), xyY.init(0.1550, 0.0700, 0.083332));
+pub const proPhoto     = RGBColorSpace.init("ProPhoto",     1.8,        si.D50, xyY.init(0.7347, 0.2653, 0.288040), xyY.init(0.1596, 0.8404, 0.711874), xyY.init(0.0366, 0.0001, 0.000086));
+pub const cieRGB       = RGBColorSpace.init("CIERGB",       2.2,        si.E,   xyY.init(0.7350, 0.2650, 0.176204), xyY.init(0.2740, 0.7170, 0.812985), xyY.init(0.1670, 0.0090, 0.010811));
+pub const p3dci        = RGBColorSpace.init("P3DCI",        2.6,        si.DCI, xyY.init(0.6800, 0.3200, 0.228975), xyY.init(0.2650, 0.6900, 0.691739), xyY.init(0.1500, 0.0600, 0.079287));
+pub const p3d65        = RGBColorSpace.init("P3D65",        2.6,        si.D65, xyY.init(0.6800, 0.3200, 0.228973), xyY.init(0.2650, 0.6900, 0.691752), xyY.init(0.1500, 0.0600, 0.079275));
+pub const p3d60        = RGBColorSpace.init("P3D60",        2.6,        si.D60, xyY.init(0.6800, 0.3200, 0.228973), xyY.init(0.2650, 0.6900, 0.691752), xyY.init(0.1500, 0.0600, 0.079275));
 pub const displayP3    = RGBColorSpace.init("DisplayP3",    "sRGB",     si.D65, xyY.init(0.6800, 0.3200, 0.228973), xyY.init(0.2650, 0.6900, 0.691752), xyY.init(0.1500, 0.0600, 0.079275));
 
 pub const rgbColorSpaces = [_]*const RGBColorSpace {
@@ -178,12 +178,14 @@ pub fn getRGBColorSpaceByName(name: []const u8) ?*const RGBColorSpace {
     return null;
 }
 
-pub fn getRGBColorSpaceByPoints(white: xyY, red: xyY, green: xyY, blue: xyY) ?*const RGBColorSpace {
+pub fn getRGBColorSpaceByPoints(white: xyY, rx: f32, ry: f32, gx: f32, gy: f32, bx: f32, by: f32) ?*const RGBColorSpace {
+    const math = std.math;
     const epsilon = 0.00001;
-    std.debug.print("\n", .{});
     for (rgbColorSpaces) |space| {
-        if (white.approxEqual(space.white, epsilon) and red.approxEqual(space.red, epsilon)
-                and green.approxEqual(space.green, epsilon) and blue.approxEqual(space.blue, epsilon)) {
+        if (white.approxEqual(space.white, epsilon)
+                and math.approxEqAbs(f32, rx, space.red.x, epsilon) and math.approxEqAbs(f32, ry, space.red.y, epsilon)
+                and math.approxEqAbs(f32, gx, space.green.x, epsilon) and math.approxEqAbs(f32, gy, space.green.y, epsilon)
+                and math.approxEqAbs(f32, bx, space.blue.x, epsilon) and math.approxEqAbs(f32, by, space.blue.y, epsilon)) {
             return space;
         }
     }
@@ -236,8 +238,16 @@ test "getByName" {
 }
 
 test "getByPoints" {
-    var space = getRGBColorSpaceByPoints(sRGB.white, sRGB.red, sRGB.green, sRGB.blue);
-    try std.testing.expectEqual(&sRGB, space.?);
-    space = getRGBColorSpaceByPoints(rec709.white, rec709.red, rec709.green, rec709.blue);
-    try std.testing.expectEqual(&rec709, space.?);
+    for (rgbColorSpaces) |space| {
+        var fspace = getRGBColorSpaceByPoints(space.white, space.red.x, space.red.y, space.green.x, space.green.y, space.blue.x, space.blue.y);
+        if (space == &rec709) {
+            // rec709 has same xy values as sRGB so it should match sRGB which has bigger priority
+            try std.testing.expectEqualStrings(sRGB.id, fspace.?.id);
+        } else if (space == &displayP3) {
+            // displayP3 has same xy values as p3d65 with only difference in gamma so it should match p3d65 which has bigger priority
+            try std.testing.expectEqualStrings(p3d65.id, fspace.?.id);
+        } else {
+            try std.testing.expectEqualStrings(space.id, fspace.?.id);
+        }
+    }
 }
