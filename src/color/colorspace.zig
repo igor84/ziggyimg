@@ -32,8 +32,8 @@ pub const RGBColorSpace = struct {
 
     /// Construct an RGB color space from primaries and whitepoint.
     pub fn init(comptime id: []const u8, comptime gamma: anytype, white: xyY, red: xyY, green: xyY, blue: xyY) Self {
-        var toGamma = dummy;
-        var toLinear = dummy;
+        var toGamma: fn (f32) f32 = undefined;
+        var toLinear: fn (f32) f32 = undefined;
         if (@TypeOf(gamma) == comptime_float) {
             toGamma = linearToGamma(gamma);
             toLinear = gammaToLinear(gamma);
@@ -69,10 +69,6 @@ pub const RGBColorSpace = struct {
         return this;
     }
 };
-
-fn dummy(v: f32) f32 {
-    return v;
-}
 
 fn linearToGamma(comptime gamma: comptime_float) fn (f32) f32 {
     return struct {
@@ -218,6 +214,8 @@ pub fn getRGBColorSpaceByPoints(white: xyY, rx: f32, ry: f32, gx: f32, gy: f32, 
     }
     return null;
 }
+
+// ********************* TESTS *********************
 
 test "sRGBToLinear" {
     const epsilon = 0.000001;

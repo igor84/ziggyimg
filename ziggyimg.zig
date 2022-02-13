@@ -1,5 +1,5 @@
 pub const color = @import("src/color.zig");
-pub const colorspace = @import("src/color/colorspace.zig");
+pub const colorspace = color.colorspace;
 
 test {
     @import("std").testing.refAllDecls(@This());

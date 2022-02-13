@@ -1,11 +1,14 @@
 const std = @import("std");
+const math = std.math;
 
-// This implements [CIE XYZ](https://en.wikipedia.org/wiki/CIE_1931_color_space)
-// color types. These color spaces represent the simplest expression of the
-// full-spectrum of human visible color. No attempts are made to support
-// perceptual uniformity, or meaningful color blending within these color
-// spaces. They are most useful as an absolute representation of human visible
-// colors, and a centre point for color space conversions.
+pub const colorspace = @import("color/colorspace.zig");
+
+/// This implements [CIE XYZ](https://en.wikipedia.org/wiki/CIE_1931_color_space)
+/// color types. These color spaces represent the simplest expression of the
+/// full-spectrum of human visible color. No attempts are made to support
+/// perceptual uniformity, or meaningful color blending within these color
+/// spaces. They are most useful as an absolute representation of human visible
+/// colors, and a centre point for color space conversions.
 pub const XYZ = struct {
     X: f32,
     Y: f32,
@@ -27,19 +30,18 @@ pub const XYZ = struct {
     }
 
     pub inline fn approxEqual(self: xyY, other: xyY, epsilon: f32) bool {
-        const math = std.math;
         return math.approxEqAbs(f32, self.Y, other.Y, epsilon) and
             math.approxEqAbs(f32, self.X, other.X, epsilon) and
             math.approxEqAbs(f32, self.Z, other.Z, epsilon);
     }
 };
 
-// This implements [CIE XYZ](https://en.wikipedia.org/wiki/CIE_1931_color_space#CIE_xy_chromaticity_diagram_and_the_CIE_xyY_color_space)
-// color types. These color spaces represent the simplest expression of the
-// full-spectrum of human visible color. No attempts are made to support
-// perceptual uniformity, or meaningful color blending within these color
-// spaces. They are most useful as an absolute representation of human visible
-// colors, and a centre point for color space conversions.
+/// This implements [CIE xyY](https://en.wikipedia.org/wiki/CIE_1931_color_space#CIE_xy_chromaticity_diagram_and_the_CIE_xyY_color_space)
+/// color types. These color spaces represent the simplest expression of the
+/// full-spectrum of human visible color. No attempts are made to support
+/// perceptual uniformity, or meaningful color blending within these color
+/// spaces. They are most useful as an absolute representation of human visible
+/// colors, and a centre point for color space conversions.
 pub const xyY = struct {
     x: f32,
     y: f32,
@@ -61,22 +63,11 @@ pub const xyY = struct {
     }
 
     pub inline fn approxEqual(self: xyY, other: xyY, epsilon: f32) bool {
-        const math = std.math;
         return math.approxEqAbs(f32, self.Y, other.Y, epsilon) and
             math.approxEqAbs(f32, self.x, other.x, epsilon) and
             math.approxEqAbs(f32, self.y, other.y, epsilon);
     }
 };
-
-test "convert XYZ to xyY" {
-    var actual = XYZ.init(0.5, 1, 0.5).toxyY();
-    var expected = xyY.init(0.25, 0.5, 1);
-    try std.testing.expect(expected.equal(actual));
-
-    actual = XYZ.init(0, 0, 0).toxyY();
-    expected = xyY.init(std_illuminant.D65.x, std_illuminant.D65.y, 0);
-    try std.testing.expect(expected.equal(actual));
-}
 
 /// The illuminant values as defined on https://en.wikipedia.org/wiki/Standard_illuminant.
 pub const std_illuminant = struct {
@@ -161,6 +152,399 @@ fn getStdIlluminantsCount(comptime decls: anytype) u32 {
     }
 }
 
+pub inline fn toIntColor(comptime T: type, value: f32) T {
+    return math.clamp(@floatToInt(T, math.round(value * @intToFloat(f32, math.maxInt(T)))), math.minInt(T), math.maxInt(T));
+}
+
+pub inline fn toF32Color(value: anytype) f32 {
+    return @intToFloat(f32, value) / @intToFloat(f32, math.maxInt(@TypeOf(value)));
+}
+
+// *************** RGB Color representations ****************
+
+pub const Colorf32 = struct {
+    r: f32,
+    g: f32,
+    b: f32,
+    a: f32,
+
+    const Self = @This();
+
+    pub fn initRgb(r: f32, g: f32, b: f32) Self {
+        return Self{
+            .r = r,
+            .g = g,
+            .b = b,
+            .a = 1.0,
+        };
+    }
+
+    pub fn initRgba(r: f32, g: f32, b: f32, a: f32) Self {
+        return Self{
+            .r = r,
+            .g = g,
+            .b = b,
+            .a = a,
+        };
+    }
+
+    pub fn fromU32Rgba(value: u32) Self {
+        return Self{
+            .r = toF32Color(@truncate(u8, value >> 24)),
+            .g = toF32Color(@truncate(u8, value >> 16)),
+            .b = toF32Color(@truncate(u8, value >> 8)),
+            .a = toF32Color(@truncate(u8, value)),
+        };
+    }
+
+    pub fn premultipliedAlpha(this: Self) Self {
+        return Self{
+            .r = this.r * this.a,
+            .g = this.g * this.a,
+            .b = this.b * this.a,
+            .a = this.a,
+        };
+    }
+
+    pub fn toRgba32(this: Self) Rgba32 {
+        return Rgba32{
+            .r = toIntColor(u8, this.r),
+            .g = toIntColor(u8, this.g),
+            .b = toIntColor(u8, this.b),
+            .a = toIntColor(u8, this.a),
+        };
+    }
+
+    pub fn toRgba64(this: Self) Rgba64 {
+        return Rgba64{
+            .r = toIntColor(u16, this.r),
+            .g = toIntColor(u16, this.g),
+            .b = toIntColor(u16, this.b),
+            .a = toIntColor(u16, this.a),
+        };
+    }
+};
+
+fn RgbColor(comptime ComponentType: type) type {
+    return packed struct {
+        r: ComponentType,
+        g: ComponentType,
+        b: ComponentType,
+
+        const compBits = @typeInfo(ComponentType).Int.bits;
+        const UintType = std.meta.Int(.unsigned, compBits * 3);
+        const wholeByteBits = math.max(compBits, 8);
+        const WholeByteType = std.meta.Int(.unsigned, wholeByteBits);
+
+        const Self = @This();
+
+        pub fn initRgb(r: ComponentType, g: ComponentType, b: ComponentType) Self {
+            return Self{
+                .r = r,
+                .g = g,
+                .b = b,
+            };
+        }
+
+        pub inline fn getValue(this: Self) UintType {
+            return @as(UintType, this.r) << (compBits * 2) |
+                @as(UintType, this.g) << compBits |
+                @as(UintType, this.b);
+        }
+
+        pub inline fn setValue(this: *Self, value: UintType) void {
+            this.r = @truncate(ComponentType, value >> (compBits * 2));
+            this.g = @truncate(ComponentType, value >> compBits);
+            this.b = @truncate(ComponentType, value);
+        }
+
+        pub fn toColorf32(this: Self) Colorf32 {
+            return Colorf32{
+                .r = toF32Color(this.r),
+                .g = toF32Color(this.g),
+                .b = toF32Color(this.b),
+                .a = 1.0,
+            };
+        }
+    };
+}
+
+pub const Rgb565 = packed struct {
+    r: u5,
+    g: u6,
+    b: u5,
+
+    const Self = @This();
+
+    pub fn initRgb(r: u5, g: u6, b: u5) Self {
+        return Self{
+            .r = r,
+            .g = g,
+            .b = b,
+        };
+    }
+
+    pub fn toColorf32(this: Self) Colorf32 {
+        return Colorf32{
+            .r = toF32Color(this.r),
+            .g = toF32Color(this.g),
+            .b = toF32Color(this.b),
+            .a = 1.0,
+        };
+    }
+};
+
+fn RgbaColor(comptime ComponentType: type) type {
+    return packed struct {
+        r: ComponentType,
+        g: ComponentType,
+        b: ComponentType,
+        a: ComponentType,
+
+        const compBits = @typeInfo(ComponentType).Int.bits;
+        const UintType = std.meta.Int(.unsigned, compBits * 4);
+
+        const Self = @This();
+
+        pub fn initRgb(r: ComponentType, g: ComponentType, b: ComponentType) Self {
+            return Self{
+                .r = r,
+                .g = g,
+                .b = b,
+                .a = math.maxInt(ComponentType),
+            };
+        }
+
+        pub fn initRgba(r: ComponentType, g: ComponentType, b: ComponentType, a: ComponentType) Self {
+            return Self{
+                .r = r,
+                .g = g,
+                .b = b,
+                .a = a,
+            };
+        }
+
+        pub inline fn getValue(this: Self) UintType {
+            return @as(UintType, this.r) << (compBits * 3) |
+                @as(UintType, this.g) << (compBits * 2) |
+                @as(UintType, this.b) << compBits |
+                @as(UintType, this.a);
+        }
+
+        pub inline fn setValue(this: *Self, value: UintType) void {
+            this.r = @truncate(ComponentType, value >> (compBits * 3));
+            this.g = @truncate(ComponentType, value >> (compBits * 2));
+            this.b = @truncate(ComponentType, value >> compBits);
+            this.a = @truncate(ComponentType, value);
+        }
+
+        pub fn toColorf32(this: Self) Colorf32 {
+            return Colorf32{
+                .r = toF32Color(this.r),
+                .g = toF32Color(this.g),
+                .b = toF32Color(this.b),
+                .a = toF32Color(this.a),
+            };
+        }
+    };
+}
+
+// Rgb24
+// OpenGL: GL_RGB
+// Vulkan: VK_FORMAT_R8G8B8_UNORM
+// Direct3D/DXGI: n/a
+pub const Rgb24 = RgbColor(u8);
+
+// Rgba32
+// OpenGL: GL_RGBA
+// Vulkan: VK_FORMAT_R8G8B8A8_UNORM
+// Direct3D/DXGI: DXGI_FORMAT_R8G8B8A8_UNORM
+pub const Rgba32 = RgbaColor(u8);
+
+// Rgb555
+// OpenGL: GL_RGB5
+// Vulkan: VK_FORMAT_R5G6B5_UNORM_PACK16
+// Direct3D/DXGI: n/a
+pub const Rgb555 = RgbColor(u5);
+
+// Rgb48
+// OpenGL: GL_RGB16
+// Vulkan: VK_FORMAT_R16G16B16_UNORM
+// Direct3D/DXGI: n/a
+pub const Rgb48 = RgbColor(u16);
+
+// Rgba64
+// OpenGL: GL_RGBA16
+// Vulkan: VK_FORMAT_R16G16B16A16_UNORM
+// Direct3D/DXGI: DXGI_FORMAT_R16G16B16A16_UNORM
+pub const Rgba64 = RgbaColor(u16);
+
+fn BgrColor(comptime ComponentType: type) type {
+    return packed struct {
+        b: ComponentType,
+        g: ComponentType,
+        r: ComponentType,
+
+        const compBits = @typeInfo(ComponentType).Int.bits;
+        const UintType = std.meta.Int(.unsigned, compBits * 3);
+
+        const Self = @This();
+
+        pub fn initRgb(r: ComponentType, g: ComponentType, b: ComponentType) Self {
+            return Self{
+                .r = r,
+                .g = g,
+                .b = b,
+            };
+        }
+
+        pub inline fn getValue(this: Self) UintType {
+            return @as(UintType, this.r) << (compBits * 2) |
+                @as(UintType, this.g) << compBits |
+                @as(UintType, this.b);
+        }
+
+        pub inline fn setValue(this: *Self, value: UintType) void {
+            this.r = @truncate(ComponentType, value >> (compBits * 2));
+            this.g = @truncate(ComponentType, value >> compBits);
+            this.b = @truncate(ComponentType, value);
+        }
+
+        pub fn toColorf32(this: Self) Colorf32 {
+            return Colorf32{
+                .r = toF32Color(this.r),
+                .g = toF32Color(this.g),
+                .b = toF32Color(this.b),
+                .a = 1.0,
+            };
+        }
+    };
+}
+
+fn BgraColor(comptime ComponentType: type) type {
+    return packed struct {
+        b: ComponentType,
+        g: ComponentType,
+        r: ComponentType,
+        a: ComponentType,
+
+        const compBits = @typeInfo(ComponentType).Int.bits;
+        const UintType = std.meta.Int(.unsigned, compBits * 4);
+
+        const Self = @This();
+
+        pub fn initRgb(r: ComponentType, g: ComponentType, b: ComponentType) Self {
+            return Self{
+                .r = r,
+                .g = g,
+                .b = b,
+                .a = math.maxInt(ComponentType),
+            };
+        }
+
+        pub fn initRgba(r: ComponentType, g: ComponentType, b: ComponentType, a: ComponentType) Self {
+            return Self{
+                .r = r,
+                .g = g,
+                .b = b,
+                .a = a,
+            };
+        }
+
+        pub inline fn getValue(this: Self) UintType {
+            return @as(UintType, this.r) << (compBits * 3) |
+                @as(UintType, this.g) << (compBits * 2) |
+                @as(UintType, this.b) << compBits |
+                @as(UintType, this.a);
+        }
+
+        pub inline fn setValue(this: *Self, value: UintType) void {
+            this.r = @truncate(ComponentType, value >> (compBits * 3));
+            this.g = @truncate(ComponentType, value >> (compBits * 2));
+            this.b = @truncate(ComponentType, value >> compBits);
+            this.a = @truncate(ComponentType, value);
+        }
+
+        pub fn toColorf32(this: Self) Colorf32 {
+            return Colorf32{
+                .r = toF32Color(this.r),
+                .g = toF32Color(this.g),
+                .b = toF32Color(this.b),
+                .a = toF32Color(this.a),
+            };
+        }
+    };
+}
+
+// Bgr24
+// OpenGL: GL_BGR
+// Vulkan: VK_FORMAT_B8G8R8_UNORM
+// Direct3D/DXGI: n/a
+pub const Bgr24 = BgrColor(u8);
+
+// Bgra32
+// OpenGL: GL_BGRA
+// Vulkan: VK_FORMAT_B8G8R8A8_UNORM
+// Direct3D/DXGI: DXGI_FORMAT_B8G8R8A8_UNORM
+pub const Bgra32 = BgraColor(u8);
+
+fn Grayscale(comptime ComponentType: type) type {
+    return struct {
+        value: ComponentType,
+
+        const Self = @This();
+
+        pub fn toColorf32(this: Self) Colorf32 {
+            const gray = toF32Color(this.value);
+            return Colorf32{
+                .r = gray,
+                .g = gray,
+                .b = gray,
+                .a = 1.0,
+            };
+        }
+    };
+}
+
+fn GrayscaleAlpha(comptime ComponentType: type) type {
+    return struct {
+        value: ComponentType,
+        alpha: ComponentType,
+
+        const Self = @This();
+
+        pub fn toColorf32(this: Self) Colorf32 {
+            const gray = toF32Color(this.value);
+            return Colorf32{
+                .r = gray,
+                .g = gray,
+                .b = gray,
+                .a = toF32Color(this.alpha),
+            };
+        }
+    };
+}
+
+pub const Grayscale1 = Grayscale(u1);
+pub const Grayscale2 = Grayscale(u2);
+pub const Grayscale4 = Grayscale(u4);
+pub const Grayscale8 = Grayscale(u8);
+pub const Grayscale16 = Grayscale(u16);
+pub const Grayscale8Alpha = GrayscaleAlpha(u8);
+pub const Grayscale16Alpha = GrayscaleAlpha(u16);
+
+// ********************* TESTS *********************
+
+test "convert XYZ to xyY" {
+    var actual = XYZ.init(0.5, 1, 0.5).toxyY();
+    var expected = xyY.init(0.25, 0.5, 1);
+    try std.testing.expect(expected.equal(actual));
+
+    actual = XYZ.init(0, 0, 0).toxyY();
+    expected = xyY.init(std_illuminant.D65.x, std_illuminant.D65.y, 0);
+    try std.testing.expect(expected.equal(actual));
+}
+
 test "Illuminant names" {
     const decls = @typeInfo(std_illuminant).Struct.decls;
     const count = getStdIlluminantsCount(decls);
@@ -193,4 +577,193 @@ test "Illuminant getName" {
         try std.testing.expect(std.mem.eql(u8, name, std_illuminant.names[i]));
     }
     try std.testing.expect(std_illuminant.getName(xyY.init(1, 2, 3)) == null);
+}
+test "Test Colorf32" {
+    const tst = std.testing;
+    var rgb = Colorf32.initRgb(0.2, 0.5, 0.7);
+    try tst.expectEqual(@as(f32, 0.2), rgb.r);
+    try tst.expectEqual(@as(f32, 0.5), rgb.g);
+    try tst.expectEqual(@as(f32, 0.7), rgb.b);
+
+    var rgba = Colorf32.initRgba(0.1, 0.4, 0.9, 0.7);
+    try tst.expectEqual(@as(f32, 0.1), rgba.r);
+    try tst.expectEqual(@as(f32, 0.4), rgba.g);
+    try tst.expectEqual(@as(f32, 0.9), rgba.b);
+    try tst.expectEqual(@as(f32, 0.7), rgba.a);
+
+    var rgba32 = rgba.toRgba32();
+    try tst.expectEqual(@as(u32, 26), rgba32.r);
+    try tst.expectEqual(@as(u32, 102), rgba32.g);
+    try tst.expectEqual(@as(u32, 230), rgba32.b);
+    try tst.expectEqual(@as(u32, 179), rgba32.a);
+
+    var rgba64 = rgba.toRgba64();
+    try tst.expectEqual(@as(u64, 6554), rgba64.r);
+    try tst.expectEqual(@as(u64, 26214), rgba64.g);
+    try tst.expectEqual(@as(u64, 58982), rgba64.b);
+    try tst.expectEqual(@as(u64, 45875), rgba64.a);
+
+    rgba = rgba.premultipliedAlpha();
+    try tst.expectEqual(@as(f32, 0.07), rgba.r);
+    try tst.expectEqual(@as(f32, 0.28), rgba.g);
+    try tst.expectEqual(@as(f32, 0.63), rgba.b);
+    try tst.expectEqual(@as(f32, 0.7), rgba.a);
+
+    rgba = Colorf32.fromU32Rgba(0x3CD174E2);
+    try tst.expectEqual(@as(f32, 0.235294117647), rgba.r);
+    try tst.expectEqual(@as(f32, 0.819607843137), rgba.g);
+    try tst.expectEqual(@as(f32, 0.454901960784), rgba.b);
+    try tst.expectEqual(@as(f32, 0.886274509804), rgba.a);
+}
+
+const TestRgbData = struct {
+    init: [3]comptime_int,
+    expected: [3]comptime_int,
+    expectedValue: comptime_int,
+    setValue: comptime_int,
+    expectedAfterValue: [3]comptime_int,
+    expectedColor: [4]f32,
+};
+
+test "RgbFormats" {
+    const rgb555TestData = TestRgbData{
+        .init = .{ 0xC, 0xF, 0x1F },
+        .expected = .{ 12, 15, 31 },
+        .expectedValue = 0x31FF,
+        .setValue = 0x20EE,
+        .expectedAfterValue = .{ 8, 7, 14 },
+        .expectedColor = .{ 8 / 31.0, 7 / 31.0, 14 / 31.0, 1.0 },
+    };
+
+    try testRgbType(Rgb555, rgb555TestData);
+
+    const rgb24TestData = TestRgbData{
+        .init = .{ 0x1C, 0x7F, 0xE5 },
+        .expected = .{ 0x1C, 0x7F, 0xE5 },
+        .expectedValue = 0x001C7FE5,
+        .setValue = 0x0090EE2A,
+        .expectedAfterValue = .{ 144, 238, 42 },
+        .expectedColor = .{ 144 / 255.0, 238 / 255.0, 42 / 255.0, 1.0 },
+    };
+
+    try testRgbType(Rgb24, rgb24TestData);
+
+    const rgb48TestData = TestRgbData{
+        .init = .{ 0x381C, 0xA37F, 0xE562 },
+        .expected = .{ 0x381C, 0xA37F, 0xE562 },
+        .expectedValue = 0x0000381CA37FE562,
+        .setValue = 0x0000A27D10F56EBC,
+        .expectedAfterValue = .{ 0xA27D, 0x10F5, 0x6EBC },
+        .expectedColor = .{ 0xA27D / 65535.0, 0x10F5 / 65535.0, 0x6EBC / 65535.0, 1.0 },
+    };
+
+    try testRgbType(Rgb48, rgb48TestData);
+}
+
+fn testRgbType(comptime T: type, comptime testData: TestRgbData) !void {
+    const tst = std.testing;
+    var rgb = T.initRgb(testData.init[0], testData.init[1], testData.init[2]);
+    try testRgb(rgb, @TypeOf(rgb.r), testData.expected);
+    var value = rgb.getValue();
+    try tst.expectEqual(@as(@TypeOf(value), testData.expectedValue), value);
+    rgb.setValue(testData.setValue);
+    try testRgb(rgb, @TypeOf(rgb.r), testData.expectedAfterValue);
+
+    var rgba = rgb.toColorf32();
+    try testColor(rgba, f32, testData.expectedColor);
+}
+
+fn testRgb(rgb: anytype, comptime CT: type, e: [3]comptime_int) !void {
+    const tst = std.testing;
+    try tst.expectEqual(@as(CT, e[0]), rgb.r);
+    try tst.expectEqual(@as(CT, e[1]), rgb.g);
+    try tst.expectEqual(@as(CT, e[2]), rgb.b);
+}
+
+fn testColor(rgba: anytype, comptime CT: type, e: [4]CT) !void {
+    const tst = std.testing;
+    try tst.expectEqual(e[0], rgba.r);
+    try tst.expectEqual(e[1], rgba.g);
+    try tst.expectEqual(e[2], rgba.b);
+    try tst.expectEqual(e[3], rgba.a);
+}
+
+const TestRgbaData = struct {
+    init: [4]comptime_int,
+    expected: [4]comptime_int,
+    expectedValue: comptime_int,
+    setValue: comptime_int,
+    expectedAfterValue: [4]comptime_int,
+    expectedColor: [4]f32,
+};
+
+test "RgbaFormats" {
+    const rgba32TestData = TestRgbaData{
+        .init = .{ 0x1C, 0x7F, 0xE5, 0xD7 },
+        .expected = .{ 0x1C, 0x7F, 0xE5, 0xD7 },
+        .expectedValue = 0x1C7FE5D7,
+        .setValue = 0x90EE2ABB,
+        .expectedAfterValue = .{ 0x90, 0xEE, 0x2A, 0xBB },
+        .expectedColor = .{ 0x90 / 255.0, 0xEE / 255.0, 0x2A / 255.0, 0xBB / 255.0 },
+    };
+
+    try testRgbaType(Rgba32, rgba32TestData);
+
+    const rgba64TestData = TestRgbaData{
+        .init = .{ 0x381C, 0xA37F, 0xE562, 0xD390 },
+        .expected = .{ 0x381C, 0xA37F, 0xE562, 0xD390 },
+        .expectedValue = 0x381CA37FE562D390,
+        .setValue = 0xA27D10F56EBCE8FA,
+        .expectedAfterValue = .{ 0xA27D, 0x10F5, 0x6EBC, 0xE8FA },
+        .expectedColor = .{ 0xA27D / 65535.0, 0x10F5 / 65535.0, 0x6EBC / 65535.0, 0xE8FA / 65535.0 },
+    };
+
+    try testRgbaType(Rgba64, rgba64TestData);
+}
+
+test "BgraFormats" {
+    const bgra32TestData = TestRgbaData{
+        .init = .{ 0x1C, 0x7F, 0xE5, 0xD7 },
+        .expected = .{ 0x1C, 0x7F, 0xE5, 0xD7 },
+        .expectedValue = 0x1C7FE5D7,
+        .setValue = 0x90EE2ABB,
+        .expectedAfterValue = .{ 0x90, 0xEE, 0x2A, 0xBB },
+        .expectedColor = .{ 0x90 / 255.0, 0xEE / 255.0, 0x2A / 255.0, 0xBB / 255.0 },
+    };
+
+    try testRgbaType(Bgra32, bgra32TestData);
+}
+
+test "BgrFormats" {
+    const bgr24TestData = TestRgbData{
+        .init = .{ 0x1C, 0x7F, 0xE5 },
+        .expected = .{ 0x1C, 0x7F, 0xE5 },
+        .expectedValue = 0x001C7FE5,
+        .setValue = 0x0090EE2A,
+        .expectedAfterValue = .{ 144, 238, 42 },
+        .expectedColor = .{ 144 / 255.0, 238 / 255.0, 42 / 255.0, 1.0 },
+    };
+
+    try testRgbType(Bgr24, bgr24TestData);
+}
+
+fn testRgbaType(comptime T: type, comptime testData: TestRgbaData) !void {
+    const tst = std.testing;
+    var rgb = T.initRgba(testData.init[0], testData.init[1], testData.init[2], testData.init[3]);
+    try testRgba(rgb, @TypeOf(rgb.r), testData.expected);
+    var value = rgb.getValue();
+    try tst.expectEqual(@as(@TypeOf(value), testData.expectedValue), value);
+    rgb.setValue(testData.setValue);
+    try testRgba(rgb, @TypeOf(rgb.r), testData.expectedAfterValue);
+
+    var rgba = rgb.toColorf32();
+    try testColor(rgba, f32, testData.expectedColor);
+}
+
+fn testRgba(rgb: anytype, comptime CT: type, e: [4]comptime_int) !void {
+    const tst = std.testing;
+    try tst.expectEqual(@as(CT, e[0]), rgb.r);
+    try tst.expectEqual(@as(CT, e[1]), rgb.g);
+    try tst.expectEqual(@as(CT, e[2]), rgb.b);
+    try tst.expectEqual(@as(CT, e[3]), rgb.a);
 }
