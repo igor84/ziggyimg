@@ -154,7 +154,7 @@ pub const std_illuminant = struct {
 fn getStdIlluminantsCount(comptime decls: anytype) u32 {
     comptime {
         var count = 0;
-        while (decls[count].data == .Var and decls[count].data.Var == xyY) {
+        while (@TypeOf(@field(std_illuminant, decls[count].name)) == xyY) {
             count += 1;
         }
         return count;

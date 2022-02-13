@@ -19,3 +19,6 @@ To run the test suite run
 ```
 zig build test
 ```
+
+## TODO
+- [ ] Provide fast way for most often needed sRGB to Linear and Linear to sRGB conversion
