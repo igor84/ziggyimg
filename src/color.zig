@@ -252,10 +252,12 @@ fn RgbColor(comptime ComponentType: type) type {
                 @as(UintType, this.b);
         }
 
-        pub inline fn setValue(this: *Self, value: UintType) void {
-            this.r = @truncate(ComponentType, value >> (compBits * 2));
-            this.g = @truncate(ComponentType, value >> compBits);
-            this.b = @truncate(ComponentType, value);
+        pub inline fn fromValue(value: UintType) Self {
+            return Self{
+                .r = @truncate(ComponentType, value >> (compBits * 2)),
+                .g = @truncate(ComponentType, value >> compBits),
+                .b = @truncate(ComponentType, value),
+            };
         }
 
         pub fn toColorf32(this: Self) Colorf32 {
@@ -331,11 +333,13 @@ fn RgbaColor(comptime ComponentType: type) type {
                 @as(UintType, this.a);
         }
 
-        pub inline fn setValue(this: *Self, value: UintType) void {
-            this.r = @truncate(ComponentType, value >> (compBits * 3));
-            this.g = @truncate(ComponentType, value >> (compBits * 2));
-            this.b = @truncate(ComponentType, value >> compBits);
-            this.a = @truncate(ComponentType, value);
+        pub inline fn fromValue(value: UintType) Self {
+            return Self{
+                .r = @truncate(ComponentType, value >> (compBits * 3)),
+                .g = @truncate(ComponentType, value >> (compBits * 2)),
+                .b = @truncate(ComponentType, value >> compBits),
+                .a = @truncate(ComponentType, value),
+            };
         }
 
         pub fn toColorf32(this: Self) Colorf32 {
@@ -404,10 +408,12 @@ fn BgrColor(comptime ComponentType: type) type {
                 @as(UintType, this.b);
         }
 
-        pub inline fn setValue(this: *Self, value: UintType) void {
-            this.r = @truncate(ComponentType, value >> (compBits * 2));
-            this.g = @truncate(ComponentType, value >> compBits);
-            this.b = @truncate(ComponentType, value);
+        pub inline fn fromValue(value: UintType) Self {
+            return Self{
+                .r = @truncate(ComponentType, value >> (compBits * 2)),
+                .g = @truncate(ComponentType, value >> compBits),
+                .b = @truncate(ComponentType, value),
+            };
         }
 
         pub fn toColorf32(this: Self) Colorf32 {
@@ -458,11 +464,13 @@ fn BgraColor(comptime ComponentType: type) type {
                 @as(UintType, this.a);
         }
 
-        pub inline fn setValue(this: *Self, value: UintType) void {
-            this.r = @truncate(ComponentType, value >> (compBits * 3));
-            this.g = @truncate(ComponentType, value >> (compBits * 2));
-            this.b = @truncate(ComponentType, value >> compBits);
-            this.a = @truncate(ComponentType, value);
+        pub inline fn fromValue(value: UintType) Self {
+            return Self{
+                .r = @truncate(ComponentType, value >> (compBits * 3)),
+                .g = @truncate(ComponentType, value >> (compBits * 2)),
+                .b = @truncate(ComponentType, value >> compBits),
+                .a = @truncate(ComponentType, value),
+            };
         }
 
         pub fn toColorf32(this: Self) Colorf32 {
@@ -666,7 +674,7 @@ fn testRgbType(comptime T: type, comptime testData: TestRgbData) !void {
     try testRgb(rgb, @TypeOf(rgb.r), testData.expected);
     var value = rgb.getValue();
     try tst.expectEqual(@as(@TypeOf(value), testData.expectedValue), value);
-    rgb.setValue(testData.setValue);
+    rgb = T.fromValue(testData.setValue);
     try testRgb(rgb, @TypeOf(rgb.r), testData.expectedAfterValue);
 
     var rgba = rgb.toColorf32();
@@ -753,7 +761,7 @@ fn testRgbaType(comptime T: type, comptime testData: TestRgbaData) !void {
     try testRgba(rgb, @TypeOf(rgb.r), testData.expected);
     var value = rgb.getValue();
     try tst.expectEqual(@as(@TypeOf(value), testData.expectedValue), value);
-    rgb.setValue(testData.setValue);
+    rgb = T.fromValue(testData.setValue);
     try testRgba(rgb, @TypeOf(rgb.r), testData.expectedAfterValue);
 
     var rgba = rgb.toColorf32();
