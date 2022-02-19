@@ -54,7 +54,7 @@ pub const RGBColorSpace = struct {
         //var xyzToRgb = zmath.inverse(rgbToXyz);
         var xyzToRgb = rgbToXyz;
 
-        var this = Self{
+        var self = Self{
             .id = id,
             .toGamma = toGamma,
             .toLinear = toLinear,
@@ -66,7 +66,7 @@ pub const RGBColorSpace = struct {
             .xyzToRgb = xyzToRgb,
         };
 
-        return this;
+        return self;
     }
 };
 

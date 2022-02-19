@@ -197,30 +197,30 @@ pub const Colorf32 = struct {
         };
     }
 
-    pub fn premultipliedAlpha(this: Self) Self {
+    pub fn premultipliedAlpha(self: Self) Self {
         return Self{
-            .r = this.r * this.a,
-            .g = this.g * this.a,
-            .b = this.b * this.a,
-            .a = this.a,
+            .r = self.r * self.a,
+            .g = self.g * self.a,
+            .b = self.b * self.a,
+            .a = self.a,
         };
     }
 
-    pub fn toRgba32(this: Self) Rgba32 {
+    pub fn toRgba32(self: Self) Rgba32 {
         return Rgba32{
-            .r = toIntColor(u8, this.r),
-            .g = toIntColor(u8, this.g),
-            .b = toIntColor(u8, this.b),
-            .a = toIntColor(u8, this.a),
+            .r = toIntColor(u8, self.r),
+            .g = toIntColor(u8, self.g),
+            .b = toIntColor(u8, self.b),
+            .a = toIntColor(u8, self.a),
         };
     }
 
-    pub fn toRgba64(this: Self) Rgba64 {
+    pub fn toRgba64(self: Self) Rgba64 {
         return Rgba64{
-            .r = toIntColor(u16, this.r),
-            .g = toIntColor(u16, this.g),
-            .b = toIntColor(u16, this.b),
-            .a = toIntColor(u16, this.a),
+            .r = toIntColor(u16, self.r),
+            .g = toIntColor(u16, self.g),
+            .b = toIntColor(u16, self.b),
+            .a = toIntColor(u16, self.a),
         };
     }
 };
@@ -246,10 +246,10 @@ fn RgbColor(comptime ComponentType: type) type {
             };
         }
 
-        pub inline fn getValue(this: Self) UintType {
-            return @as(UintType, this.r) << (compBits * 2) |
-                @as(UintType, this.g) << compBits |
-                @as(UintType, this.b);
+        pub inline fn getValue(self: Self) UintType {
+            return @as(UintType, self.r) << (compBits * 2) |
+                @as(UintType, self.g) << compBits |
+                @as(UintType, self.b);
         }
 
         pub inline fn fromValue(value: UintType) Self {
@@ -260,11 +260,11 @@ fn RgbColor(comptime ComponentType: type) type {
             };
         }
 
-        pub fn toColorf32(this: Self) Colorf32 {
+        pub fn toColorf32(self: Self) Colorf32 {
             return Colorf32{
-                .r = toF32Color(this.r),
-                .g = toF32Color(this.g),
-                .b = toF32Color(this.b),
+                .r = toF32Color(self.r),
+                .g = toF32Color(self.g),
+                .b = toF32Color(self.b),
                 .a = 1.0,
             };
         }
@@ -286,11 +286,11 @@ pub const Rgb565 = packed struct {
         };
     }
 
-    pub fn toColorf32(this: Self) Colorf32 {
+    pub fn toColorf32(self: Self) Colorf32 {
         return Colorf32{
-            .r = toF32Color(this.r),
-            .g = toF32Color(this.g),
-            .b = toF32Color(this.b),
+            .r = toF32Color(self.r),
+            .g = toF32Color(self.g),
+            .b = toF32Color(self.b),
             .a = 1.0,
         };
     }
@@ -326,11 +326,11 @@ fn RgbaColor(comptime ComponentType: type) type {
             };
         }
 
-        pub inline fn getValue(this: Self) UintType {
-            return @as(UintType, this.r) << (compBits * 3) |
-                @as(UintType, this.g) << (compBits * 2) |
-                @as(UintType, this.b) << compBits |
-                @as(UintType, this.a);
+        pub inline fn getValue(self: Self) UintType {
+            return @as(UintType, self.r) << (compBits * 3) |
+                @as(UintType, self.g) << (compBits * 2) |
+                @as(UintType, self.b) << compBits |
+                @as(UintType, self.a);
         }
 
         pub inline fn fromValue(value: UintType) Self {
@@ -342,12 +342,12 @@ fn RgbaColor(comptime ComponentType: type) type {
             };
         }
 
-        pub fn toColorf32(this: Self) Colorf32 {
+        pub fn toColorf32(self: Self) Colorf32 {
             return Colorf32{
-                .r = toF32Color(this.r),
-                .g = toF32Color(this.g),
-                .b = toF32Color(this.b),
-                .a = toF32Color(this.a),
+                .r = toF32Color(self.r),
+                .g = toF32Color(self.g),
+                .b = toF32Color(self.b),
+                .a = toF32Color(self.a),
             };
         }
     };
@@ -402,10 +402,10 @@ fn BgrColor(comptime ComponentType: type) type {
             };
         }
 
-        pub inline fn getValue(this: Self) UintType {
-            return @as(UintType, this.r) << (compBits * 2) |
-                @as(UintType, this.g) << compBits |
-                @as(UintType, this.b);
+        pub inline fn getValue(self: Self) UintType {
+            return @as(UintType, self.r) << (compBits * 2) |
+                @as(UintType, self.g) << compBits |
+                @as(UintType, self.b);
         }
 
         pub inline fn fromValue(value: UintType) Self {
@@ -416,11 +416,11 @@ fn BgrColor(comptime ComponentType: type) type {
             };
         }
 
-        pub fn toColorf32(this: Self) Colorf32 {
+        pub fn toColorf32(self: Self) Colorf32 {
             return Colorf32{
-                .r = toF32Color(this.r),
-                .g = toF32Color(this.g),
-                .b = toF32Color(this.b),
+                .r = toF32Color(self.r),
+                .g = toF32Color(self.g),
+                .b = toF32Color(self.b),
                 .a = 1.0,
             };
         }
@@ -457,11 +457,11 @@ fn BgraColor(comptime ComponentType: type) type {
             };
         }
 
-        pub inline fn getValue(this: Self) UintType {
-            return @as(UintType, this.r) << (compBits * 3) |
-                @as(UintType, this.g) << (compBits * 2) |
-                @as(UintType, this.b) << compBits |
-                @as(UintType, this.a);
+        pub inline fn getValue(self: Self) UintType {
+            return @as(UintType, self.r) << (compBits * 3) |
+                @as(UintType, self.g) << (compBits * 2) |
+                @as(UintType, self.b) << compBits |
+                @as(UintType, self.a);
         }
 
         pub inline fn fromValue(value: UintType) Self {
@@ -473,12 +473,12 @@ fn BgraColor(comptime ComponentType: type) type {
             };
         }
 
-        pub fn toColorf32(this: Self) Colorf32 {
+        pub fn toColorf32(self: Self) Colorf32 {
             return Colorf32{
-                .r = toF32Color(this.r),
-                .g = toF32Color(this.g),
-                .b = toF32Color(this.b),
-                .a = toF32Color(this.a),
+                .r = toF32Color(self.r),
+                .g = toF32Color(self.g),
+                .b = toF32Color(self.b),
+                .a = toF32Color(self.a),
             };
         }
     };
@@ -502,8 +502,8 @@ fn Grayscale(comptime ComponentType: type) type {
 
         const Self = @This();
 
-        pub fn toColorf32(this: Self) Colorf32 {
-            const gray = toF32Color(this.value);
+        pub fn toColorf32(self: Self) Colorf32 {
+            const gray = toF32Color(self.value);
             return Colorf32{
                 .r = gray,
                 .g = gray,
@@ -521,13 +521,13 @@ fn GrayscaleAlpha(comptime ComponentType: type) type {
 
         const Self = @This();
 
-        pub fn toColorf32(this: Self) Colorf32 {
-            const gray = toF32Color(this.value);
+        pub fn toColorf32(self: Self) Colorf32 {
+            const gray = toF32Color(self.value);
             return Colorf32{
                 .r = gray,
                 .g = gray,
                 .b = gray,
-                .a = toF32Color(this.alpha),
+                .a = toF32Color(self.alpha),
             };
         }
     };

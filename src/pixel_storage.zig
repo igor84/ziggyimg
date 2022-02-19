@@ -35,9 +35,9 @@ pub fn IndexedStorage(comptime T: type) type {
             };
         }
 
-        pub fn deinit(this: Self, allocator: Allocator) void {
-            allocator.free(this.palette);
-            allocator.free(this.indices);
+        pub fn deinit(self: Self, allocator: Allocator) void {
+            allocator.free(self.palette);
+            allocator.free(self.indices);
         }
     };
 }
@@ -183,8 +183,8 @@ pub const PixelStorage = union(PixelFormat) {
         };
     }
 
-    pub fn deinit(this: Self, allocator: Allocator) void {
-        switch (this) {
+    pub fn deinit(self: Self, allocator: Allocator) void {
+        switch (self) {
             .Bpp1 => |data| data.deinit(allocator),
             .Bpp2 => |data| data.deinit(allocator),
             .Bpp4 => |data| data.deinit(allocator),
@@ -209,8 +209,8 @@ pub const PixelStorage = union(PixelFormat) {
         }
     }
 
-    pub fn len(this: Self) usize {
-        return switch (this) {
+    pub fn len(self: Self) usize {
+        return switch (self) {
             .Bpp1 => |data| data.indices.len,
             .Bpp2 => |data| data.indices.len,
             .Bpp4 => |data| data.indices.len,
@@ -235,8 +235,8 @@ pub const PixelStorage = union(PixelFormat) {
         };
     }
 
-    pub fn isIndexed(this: Self) bool {
-        return switch (this) {
+    pub fn isIndexed(self: Self) bool {
+        return switch (self) {
             .Bpp1 => true,
             .Bpp2 => true,
             .Bpp4 => true,
@@ -265,36 +265,36 @@ pub const PixelStorageIterator = struct {
         return Self{};
     }
 
-    pub fn next(this: *Self) ?Colorf32 {
-        if (this.current_index >= this.end) {
+    pub fn next(self: *Self) ?Colorf32 {
+        if (self.current_index >= self.end) {
             return null;
         }
 
-        const result: ?Colorf32 = switch (this.pixels.*) {
-            .Bpp1 => |data| data.palette[data.indices[this.current_index]],
-            .Bpp2 => |data| data.palette[data.indices[this.current_index]],
-            .Bpp4 => |data| data.palette[data.indices[this.current_index]],
-            .Bpp8 => |data| data.palette[data.indices[this.current_index]],
-            .Bpp16 => |data| data.palette[data.indices[this.current_index]],
-            .Grayscale1 => |data| data[this.current_index].toColorf32(),
-            .Grayscale2 => |data| data[this.current_index].toColorf32(),
-            .Grayscale4 => |data| data[this.current_index].toColorf32(),
-            .Grayscale8 => |data| data[this.current_index].toColorf32(),
-            .Grayscale8Alpha => |data| data[this.current_index].toColorf32(),
-            .Grayscale16 => |data| data[this.current_index].toColorf32(),
-            .Grayscale16Alpha => |data| data[this.current_index].toColorf32(),
-            .Rgb24 => |data| data[this.current_index].toColorf32(),
-            .Rgba32 => |data| data[this.current_index].toColorf32(),
-            .Rgb565 => |data| data[this.current_index].toColorf32(),
-            .Rgb555 => |data| data[this.current_index].toColorf32(),
-            .Bgr24 => |data| data[this.current_index].toColorf32(),
-            .Bgra32 => |data| data[this.current_index].toColorf32(),
-            .Rgb48 => |data| data[this.current_index].toColorf32(),
-            .Rgba64 => |data| data[this.current_index].toColorf32(),
-            .Float32 => |data| data[this.current_index],
+        const result: ?Colorf32 = switch (self.pixels.*) {
+            .Bpp1 => |data| data.palette[data.indices[self.current_index]],
+            .Bpp2 => |data| data.palette[data.indices[self.current_index]],
+            .Bpp4 => |data| data.palette[data.indices[self.current_index]],
+            .Bpp8 => |data| data.palette[data.indices[self.current_index]],
+            .Bpp16 => |data| data.palette[data.indices[self.current_index]],
+            .Grayscale1 => |data| data[self.current_index].toColorf32(),
+            .Grayscale2 => |data| data[self.current_index].toColorf32(),
+            .Grayscale4 => |data| data[self.current_index].toColorf32(),
+            .Grayscale8 => |data| data[self.current_index].toColorf32(),
+            .Grayscale8Alpha => |data| data[self.current_index].toColorf32(),
+            .Grayscale16 => |data| data[self.current_index].toColorf32(),
+            .Grayscale16Alpha => |data| data[self.current_index].toColorf32(),
+            .Rgb24 => |data| data[self.current_index].toColorf32(),
+            .Rgba32 => |data| data[self.current_index].toColorf32(),
+            .Rgb565 => |data| data[self.current_index].toColorf32(),
+            .Rgb555 => |data| data[self.current_index].toColorf32(),
+            .Bgr24 => |data| data[self.current_index].toColorf32(),
+            .Bgra32 => |data| data[self.current_index].toColorf32(),
+            .Rgb48 => |data| data[self.current_index].toColorf32(),
+            .Rgba64 => |data| data[self.current_index].toColorf32(),
+            .Float32 => |data| data[self.current_index],
         };
 
-        this.current_index += 1;
+        self.current_index += 1;
         return result;
     }
 };
