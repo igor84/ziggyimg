@@ -39,51 +39,12 @@ pub fn ImageReader(comptime buffer_size_type: type) type {
             }
         }
 
-        pub inline fn readStructNative(self: *Self, comptime T: type) !T {
+        pub inline fn readStruct(self: *Self, comptime T: type) !*const T {
             switch (self.*) {
                 .buffer => |*b| return b.readStruct(T),
                 .file => |*f| return f.readStruct(T),
             }
         }
-
-        pub fn readStructForeign(self: *Self, comptime T: type) !T {
-            var res = try self.readStructNative(T);
-            byteSwapStruct(&res);
-            return res;
-        }
-
-        fn byteSwapStruct(value: anytype) void {
-            inline for (std.meta.fields(@TypeOf(value.*))) |field| {
-                switch (@typeInfo(field.field_type)) {
-                    .ComptimeInt, .Int => {
-                        @field(value.*, field.name) = @byteSwap(field.field_type, @field(value.*, field.name));
-                    },
-                    .Enum => {
-                        var fieldVal = @enumToInt(@field(value.*, field.name));
-                        fieldVal = @byteSwap(@TypeOf(fieldVal), fieldVal);
-                        @field(value.*, field.name) = @intToEnum(field.field_type, fieldVal);
-                    },
-                    .Struct => {
-                        byteSwapStruct(&@field(value.*, field.name));
-                    },
-                    else => {
-                        @compileError(std.fmt.comptimePrint("Type {} in byteSwapStruct not supported", .{@typeName(field.field_type)}));
-                    },
-                }
-            }
-        }
-
-        const native_endian = @import("builtin").target.cpu.arch.endian();
-
-        pub const readStructLittle = switch (native_endian) {
-            builtin.Endian.Little => readStructNative,
-            builtin.Endian.Big => readStructForeign,
-        };
-
-        pub const readStructBig = switch (native_endian) {
-            builtin.Endian.Little => readStructForeign,
-            builtin.Endian.Big => readStructNative,
-        };
     };
 }
 
@@ -122,17 +83,19 @@ const BufferReader = struct {
         return size;
     }
 
-    pub fn readStruct(self: *Self, comptime T: type) !T {
+    fn BytesAsValueReturnType(comptime T: type, comptime B: type) type {
+        return mem.CopyPtrAttrs(B, .One, T);
+    }
+
+    pub fn readStruct(self: *Self, comptime T: type) !*const T {
         // Only extern and packed structs have defined in-memory layout.
         comptime assert(@typeInfo(T).Struct.layout != std.builtin.TypeInfo.ContainerLayout.Auto);
         const size = @sizeOf(T);
         var end = self.pos + size;
         if (end > self.buffer.len) return error.EndOfStream;
-        var res: [1]T = undefined;
-        var bytes = mem.sliceAsBytes(res[0..]);
-        mem.copy(u8, bytes, self.buffer[self.pos..end]);
+        var start = self.pos;
         self.pos = end;
-        return res[0];
+        return @ptrCast(*const T, self.buffer[start..end]);
     }
 };
 
@@ -162,15 +125,14 @@ pub fn FileReader(comptime buffer_size_type: type) type {
             try return self.file.read(buf);
         }
 
-        pub fn readStruct(self: *Self, comptime T: type) !T {
+        pub fn readStruct(self: *Self, comptime T: type) !*const T {
             // Only extern and packed structs have defined in-memory layout.
             comptime assert(@typeInfo(T).Struct.layout != std.builtin.TypeInfo.ContainerLayout.Auto);
-            var res: [1]T = undefined;
-            var bytes = mem.sliceAsBytes(res[0..]);
             const size = @sizeOf(T);
-            var readSize = try self.file.read(bytes);
+            if (size > self.buffer.len) return error.EndOfStream; // TODO: What error to report?
+            var readSize = try self.file.read(self.buffer[0..size]);
             if (readSize < size) return error.EndOfStream;
-            return res[0];
+            return @ptrCast(*const T, self.buffer[0..]);
         }
     };
 }
@@ -198,29 +160,6 @@ test "BufferReader" {
     try testReader(&reader);
 }
 
-test "ReadStructForeign" {
-    const TestSubStruct = packed struct {
-        int32f: u32,
-        int8f: u8,
-    };
-    const TestStruct = packed struct {
-        int32f: u32,
-        int8f: u8,
-        sub: TestSubStruct
-    };
-    var buffer = "01234567890123456789";
-    var reader = ImageReader8.fromMemory(buffer[0..]);
-    var nativeStruct = try reader.readStructNative(TestStruct);
-    std.debug.print("\n{} {} {} {}\n", .{nativeStruct.int32f, nativeStruct.int8f, nativeStruct.sub.int32f, nativeStruct.sub.int8f});
-    std.debug.print("{} {} {} {}\n", .{&nativeStruct.int32f, &nativeStruct.int8f, &nativeStruct.sub.int32f, &nativeStruct.sub.int8f});
-    try std.testing.expectEqual(@as(usize, 10), reader.buffer.pos);
-    var foreignStruct = try reader.readStructForeign(TestStruct);
-    try std.testing.expectEqual(nativeStruct.int32f, @byteSwap(u32, foreignStruct.int32f));
-    try std.testing.expectEqual(nativeStruct.int8f, foreignStruct.int8f);
-    try std.testing.expectEqual(nativeStruct.sub.int32f, @byteSwap(u32, foreignStruct.sub.int32f));
-    try std.testing.expectEqual(nativeStruct.sub.int8f, foreignStruct.sub.int8f);
-}
-
 fn testReader(reader: *ImageReader8) !void {
     var array10 = try reader.readNoAlloc(10);
     try std.testing.expectEqualSlices(u8, "0123456789", array10);
@@ -228,13 +167,14 @@ fn testReader(reader: *ImageReader8) !void {
         a: u32,
         b: [16]u8,
     };
-    var ts = try reader.readStructNative(TestStruct);
+    var ts = try reader.readStruct(TestStruct);
     try std.testing.expectEqual(TestStruct{
         .a = 0x64636241,
-        .b = .{ 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 48, 49 },
-    }, ts);
-    var buf: [10]u8 = undefined;
+        .b = .{ 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', '0', '1' },
+    }, ts.*);
+    var buf: [8]u8 = undefined;
     var readBytes = try reader.read(buf[0..]);
     try std.testing.expectEqual(@as(usize, 8), readBytes);
     try std.testing.expectEqualSlices(u8, "23456789", buf[0..8]);
 }
+
