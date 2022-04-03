@@ -4,16 +4,14 @@ const Allocator = mem.Allocator;
 const builtin = std.builtin;
 const assert = std.debug.assert;
 
+const ImageReaderError = error{EndOfStream} || std.os.ReadError;
+
 pub fn ImageReader(comptime buffer_size_type: type) type {
     return union(enum) {
         const FReader = FileReader(buffer_size_type);
 
         buffer: BufferReader,
         file: FReader,
-
-        pub const ReadError = std.fs.File.ReadError;
-        pub const SeekError = std.fs.File.SeekError;
-        pub const GetSeekPosError = std.fs.File.GetSeekPosError;
 
         const Self = @This();
 
@@ -25,21 +23,21 @@ pub fn ImageReader(comptime buffer_size_type: type) type {
             return Self{ .buffer = BufferReader.init(buffer) };
         }
 
-        pub inline fn readNoAlloc(self: *Self, size: buffer_size_type) ![]const u8 {
+        pub inline fn readNoAlloc(self: *Self, size: buffer_size_type) ImageReaderError![]const u8 {
             switch (self.*) {
                 .buffer => |*b| return b.readNoAlloc(size),
                 .file => |*f| return f.readNoAlloc(size),
             }
         }
 
-        pub inline fn read(self: *Self, buf: []u8) !usize {
+        pub inline fn read(self: *Self, buf: []u8) ImageReaderError!usize {
             switch (self.*) {
                 .buffer => |*b| return b.read(buf),
                 .file => |*f| return f.read(buf),
             }
         }
 
-        pub inline fn readStruct(self: *Self, comptime T: type) !*const T {
+        pub inline fn readStruct(self: *Self, comptime T: type) ImageReaderError!*const T {
             switch (self.*) {
                 .buffer => |*b| return b.readStruct(T),
                 .file => |*f| return f.readStruct(T),
@@ -63,7 +61,7 @@ const BufferReader = struct {
         return .{ .buffer = buf, .pos = 0 };
     }
 
-    pub fn readNoAlloc(self: *Self, size: usize) ![]const u8 {
+    pub fn readNoAlloc(self: *Self, size: usize) ImageReaderError![]const u8 {
         var end = self.pos + size;
         if (end > self.buffer.len) return error.EndOfStream;
         var res = self.buffer[self.pos..end];
@@ -71,7 +69,7 @@ const BufferReader = struct {
         return res;
     }
 
-    pub fn read(self: *Self, buf: []u8) !usize {
+    pub fn read(self: *Self, buf: []u8) ImageReaderError!usize {
         var size = buf.len;
         var end = self.pos + size;
         if (end > self.buffer.len) {
@@ -83,11 +81,7 @@ const BufferReader = struct {
         return size;
     }
 
-    fn BytesAsValueReturnType(comptime T: type, comptime B: type) type {
-        return mem.CopyPtrAttrs(B, .One, T);
-    }
-
-    pub fn readStruct(self: *Self, comptime T: type) !*const T {
+    pub fn readStruct(self: *Self, comptime T: type) ImageReaderError!*const T {
         // Only extern and packed structs have defined in-memory layout.
         comptime assert(@typeInfo(T).Struct.layout != std.builtin.TypeInfo.ContainerLayout.Auto);
         const size = @sizeOf(T);
@@ -114,22 +108,22 @@ pub fn FileReader(comptime buffer_size_type: type) type {
             return Self{ .file = file, .buffer = undefined };
         }
 
-        pub fn readNoAlloc(self: *Self, size: buffer_size_type) ![]const u8 {
-            if (size > self.buffer.len) return error.EndOfStream; // TODO: What error to report?
+        pub fn readNoAlloc(self: *Self, size: usize) ImageReaderError![]const u8 {
+            if (size > self.buffer.len) return error.EndOfStream;
             var readSize = try self.file.read(self.buffer[0..size]);
             if (readSize < size) return error.EndOfStream;
             return self.buffer[0..size];
         }
 
-        pub fn read(self: *Self, buf: []u8) !usize {
+        pub fn read(self: *Self, buf: []u8) ImageReaderError!usize {
             try return self.file.read(buf);
         }
 
-        pub fn readStruct(self: *Self, comptime T: type) !*const T {
+        pub fn readStruct(self: *Self, comptime T: type) ImageReaderError!*const T {
             // Only extern and packed structs have defined in-memory layout.
             comptime assert(@typeInfo(T).Struct.layout != std.builtin.TypeInfo.ContainerLayout.Auto);
             const size = @sizeOf(T);
-            if (size > self.buffer.len) return error.EndOfStream; // TODO: What error to report?
+            if (size > self.buffer.len) return error.EndOfStream;
             var readSize = try self.file.read(self.buffer[0..size]);
             if (readSize < size) return error.EndOfStream;
             return @ptrCast(*const T, self.buffer[0..]);
@@ -177,4 +171,3 @@ fn testReader(reader: *ImageReader8) !void {
     try std.testing.expectEqual(@as(usize, 8), readBytes);
     try std.testing.expectEqualSlices(u8, "23456789", buf[0..8]);
 }
-
