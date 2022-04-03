@@ -4,7 +4,7 @@ const Allocator = mem.Allocator;
 const builtin = std.builtin;
 const assert = std.debug.assert;
 
-const ImageReaderError = error{EndOfStream} || std.os.ReadError;
+pub const ImageReaderError = error{EndOfStream} || std.os.ReadError;
 
 pub fn ImageReader(comptime buffer_size_type: type) type {
     return union(enum) {
@@ -46,12 +46,12 @@ pub fn ImageReader(comptime buffer_size_type: type) type {
     };
 }
 
-const ImageReader8 = ImageReader(u8);
-const ImageReader10 = ImageReader(u10);
-const ImageReader12 = ImageReader(u12);
-const ImageReader16 = ImageReader(u16);
+pub const ImageReader8 = ImageReader(u8);
+pub const ImageReader10 = ImageReader(u10);
+pub const ImageReader12 = ImageReader(u12);
+pub const ImageReader16 = ImageReader(u16);
 
-const BufferReader = struct {
+pub const BufferReader = struct {
     buffer: []const u8,
     pos: usize,
 
@@ -108,8 +108,7 @@ pub fn FileReader(comptime buffer_size_type: type) type {
             return Self{ .file = file, .buffer = undefined };
         }
 
-        pub fn readNoAlloc(self: *Self, size: usize) ImageReaderError![]const u8 {
-            if (size > self.buffer.len) return error.EndOfStream;
+        pub fn readNoAlloc(self: *Self, size: buffer_size_type) ImageReaderError![]const u8 {
             var readSize = try self.file.read(self.buffer[0..size]);
             if (readSize < size) return error.EndOfStream;
             return self.buffer[0..size];
@@ -131,10 +130,10 @@ pub fn FileReader(comptime buffer_size_type: type) type {
     };
 }
 
-const FileReader8 = FileReader(u8);
-const FileReader10 = FileReader(u10);
-const FileReader12 = FileReader(u12);
-const FileReader16 = FileReader(u16);
+pub const FileReader8 = FileReader(u8);
+pub const FileReader10 = FileReader(u10);
+pub const FileReader12 = FileReader(u12);
+pub const FileReader16 = FileReader(u16);
 
 // ********************* TESTS *********************
 
