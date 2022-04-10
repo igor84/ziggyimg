@@ -43,6 +43,27 @@ pub fn ImageReader(comptime buffer_size_type: type) type {
                 .file => |*f| return f.readStruct(T),
             }
         }
+
+        pub inline fn readInt(self: *Self, comptime T: type) ImageReadError!T {
+            switch (self.*) {
+                .buffer => |*b| return b.readInt(T),
+                .file => |*f| return f.readInt(T),
+            }
+        }
+
+        pub fn readBigEndianInt(self: *Self, comptime T: type) ImageReadError!T {
+            switch (self.*) {
+                .buffer => |*b| return b.readBigEndianInt(T),
+                .file => |*f| return f.readBigEndianInt(T),
+            }
+        }
+
+        pub fn readLittleEndianInt(self: *Self, comptime T: type) ImageReadError!T {
+            switch (self.*) {
+                .buffer => |*b| return b.readLittleEndianInt(T),
+                .file => |*f| return f.readLittleEndianInt(T),
+            }
+        }
     };
 }
 
@@ -91,6 +112,25 @@ pub const BufferReader = struct {
         self.pos = end;
         return @ptrCast(*const T, self.buffer[start..end]);
     }
+
+    pub fn readInt(self: *Self, comptime T: type) ImageReadError!T {
+        comptime assert(@typeInfo(T) == .Int);
+        const bitSize = @bitSizeOf(T);
+        const size = @sizeOf(T);
+        comptime assert(bitSize % 8 == 0 and bitSize / 8 == size); // This will not allow u24 as intended
+        var result: T = undefined;
+        var readSize = try self.read(mem.asBytes(&result));
+        if (readSize != size) return error.EndOfStream;
+        return result;
+    }
+
+    pub fn readBigEndianInt(self: *Self, comptime T: type) ImageReadError!T {
+        return mem.bigToNative(T, try self.readInt(T));
+    }
+
+    pub fn readLittleEndianInt(self: *Self, comptime T: type) ImageReadError!T {
+        return mem.littleToNative(T, try self.readInt(T));
+    }
 };
 
 pub fn FileReader(comptime buffer_size_type: type) type {
@@ -121,7 +161,7 @@ pub fn FileReader(comptime buffer_size_type: type) type {
                 self.end = available;
             }
             if (available < size) return error.EndOfStream;
-            
+
             var endPos = self.pos + size;
             var result = self.buffer[self.pos..endPos];
             self.pos = endPos;
@@ -152,6 +192,24 @@ pub fn FileReader(comptime buffer_size_type: type) type {
             var buf = try self.readNoAlloc(size);
             return @ptrCast(*const T, buf);
         }
+
+        pub fn readInt(self: *Self, comptime T: type) ImageReadError!T {
+            comptime assert(@typeInfo(T) == .Int);
+            const bitSize = @bitSizeOf(T);
+            const size = @sizeOf(T);
+            comptime assert(bitSize % 8 == 0 and bitSize / 8 == size); // This will not allow u24 as intended
+            var result: T = undefined;
+            var readSize = try self.read(mem.asBytes(&result));
+            if (readSize != size) return error.EndOfStream;
+            return result;
+        }
+
+        pub fn readBigEndianInt(self: *Self, comptime T: type) ImageReadError!T {
+            return mem.bigToNative(T, try self.readInt(T));
+        }
+
+        pub fn readLittleEndianInt(self: *Self, comptime T: type) ImageReadError!T {
+            return mem.littleToNative(T, try self.readInt(T));
         }
     };
 }
@@ -184,15 +242,17 @@ fn testReader(reader: *ImageReader8) !void {
     try std.testing.expectEqualSlices(u8, "0123456789", array10);
     const TestStruct = packed struct {
         a: u32,
-        b: [16]u8,
+        b: [11]u8,
     };
     var ts = try reader.readStruct(TestStruct);
     try std.testing.expectEqual(TestStruct{
         .a = 0x64636241,
-        .b = .{ 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', '0', '1' },
+        .b = .{ 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o' },
     }, ts.*);
     var buf: [8]u8 = undefined;
     var readBytes = try reader.read(buf[0..]);
     try std.testing.expectEqual(@as(usize, 8), readBytes);
-    try std.testing.expectEqualSlices(u8, "23456789", buf[0..8]);
+    try std.testing.expectEqualSlices(u8, "pqr01234", buf[0..8]);
+    var int = try reader.readBigEndianInt(u32);
+    try std.testing.expectEqual(@as(u32, 0x35363738), int);
 }
