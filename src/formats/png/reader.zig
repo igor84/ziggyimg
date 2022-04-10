@@ -5,7 +5,7 @@ const utils = @import("../../utils.zig");
 const ImageReader = imgio.ImageReader16;
 const mem = std.mem;
 
-pub const ImageParsingError = error{InvalidData} || imgio.ImageReaderError;
+pub const ImageParsingError = error{InvalidData} || imgio.ImageReadError;
 
 pub fn loadHeader(reader: *ImageReader) ImageParsingError!png.HeaderData {
     var sig: [png.MagicHeader.len]u8 = undefined;
