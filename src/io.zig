@@ -98,24 +98,50 @@ pub fn FileReader(comptime buffer_size_type: type) type {
     if (typeInfo != .Int or typeInfo.Int.signedness != .unsigned or typeInfo.Int.bits < 8 or typeInfo.Int.bits > 18) {
         @compileError("The buffer size type must be unsigned int of at least 8 and at most 18 bits!");
     }
+    const capacity = std.math.maxInt(buffer_size_type) + 1;
     return struct {
-        buffer: [std.math.maxInt(buffer_size_type)]u8,
         file: std.fs.File,
+        pos: usize = 0,
+        end: usize = 0,
+        buffer: [capacity]u8 = undefined,
 
         const Self = @This();
 
         pub fn init(file: std.fs.File) Self {
-            return Self{ .file = file, .buffer = undefined };
+            return Self{ .file = file };
         }
 
         pub fn readNoAlloc(self: *Self, size: buffer_size_type) ImageReadError![]const u8 {
-            var readSize = try self.file.read(self.buffer[0..size]);
-            if (readSize < size) return error.EndOfStream;
-            return self.buffer[0..size];
+            var available = self.end - self.pos;
+            if (available < size) {
+                mem.copy(u8, self.buffer[0..available], self.buffer[self.pos..self.end]);
+                var readSize = try self.file.read(self.buffer[available..]);
+                self.pos = 0;
+                available += readSize;
+                self.end = available;
+            }
+            if (available < size) return error.EndOfStream;
+            
+            var endPos = self.pos + size;
+            var result = self.buffer[self.pos..endPos];
+            self.pos = endPos;
+            return result;
         }
 
         pub fn read(self: *Self, buf: []u8) ImageReadError!usize {
-            try return self.file.read(buf);
+            var size = buf.len;
+            var available = self.end - self.pos;
+            if (available >= size) {
+                var endPos = self.pos + size;
+                mem.copy(u8, buf[0..], self.buffer[self.pos..endPos]);
+                self.pos = endPos;
+                return size;
+            }
+
+            mem.copy(u8, buf[0..available], self.buffer[self.pos..self.end]);
+            self.pos = 0;
+            self.end = 0;
+            try return self.file.read(buf[available..]);
         }
 
         pub fn readStruct(self: *Self, comptime T: type) ImageReadError!*const T {
@@ -123,9 +149,9 @@ pub fn FileReader(comptime buffer_size_type: type) type {
             comptime assert(@typeInfo(T).Struct.layout != std.builtin.TypeInfo.ContainerLayout.Auto);
             const size = @sizeOf(T);
             if (size > self.buffer.len) return error.EndOfStream;
-            var readSize = try self.file.read(self.buffer[0..size]);
-            if (readSize < size) return error.EndOfStream;
-            return @ptrCast(*const T, self.buffer[0..]);
+            var buf = try self.readNoAlloc(size);
+            return @ptrCast(*const T, buf);
+        }
         }
     };
 }
