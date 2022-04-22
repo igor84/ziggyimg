@@ -5,5 +5,6 @@ pub const ziggyio = @import("src/io.zig");
 pub const pngReader = @import("src/formats/png/reader.zig");
 
 test {
-    @import("std").testing.refAllDecls(@This());
+    const std = @import("std");
+    std.testing.refAllDecls(@This());
 }

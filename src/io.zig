@@ -4,7 +4,7 @@ const Allocator = mem.Allocator;
 const builtin = std.builtin;
 const assert = std.debug.assert;
 
-pub const ImageReadError = error{EndOfStream} || std.os.ReadError;
+pub const ImageReadError = error{ EndOfStream, SeekError } || std.os.ReadError;
 
 pub fn ImageReader(comptime buffer_size_type: type) type {
     return union(enum) {
@@ -51,17 +51,24 @@ pub fn ImageReader(comptime buffer_size_type: type) type {
             }
         }
 
-        pub fn readBigEndianInt(self: *Self, comptime T: type) ImageReadError!T {
+        pub fn readIntBig(self: *Self, comptime T: type) ImageReadError!T {
             switch (self.*) {
-                .buffer => |*b| return b.readBigEndianInt(T),
-                .file => |*f| return f.readBigEndianInt(T),
+                .buffer => |*b| return b.readIntBig(T),
+                .file => |*f| return f.readIntBig(T),
             }
         }
 
-        pub fn readLittleEndianInt(self: *Self, comptime T: type) ImageReadError!T {
+        pub fn readIntLittle(self: *Self, comptime T: type) ImageReadError!T {
             switch (self.*) {
-                .buffer => |*b| return b.readLittleEndianInt(T),
-                .file => |*f| return f.readLittleEndianInt(T),
+                .buffer => |*b| return b.readIntLittle(T),
+                .file => |*f| return f.readIntLittle(T),
+            }
+        }
+
+        pub fn seekBy(self: *Self, amt: i64) ImageReadError!void {
+            switch (self.*) {
+                .buffer => |*b| return b.seekBy(amt),
+                .file => |*f| return f.seekBy(amt),
             }
         }
     };
@@ -124,12 +131,34 @@ pub const BufferReader = struct {
         return result;
     }
 
-    pub fn readBigEndianInt(self: *Self, comptime T: type) ImageReadError!T {
+    pub fn readIntBig(self: *Self, comptime T: type) ImageReadError!T {
         return mem.bigToNative(T, try self.readInt(T));
     }
 
-    pub fn readLittleEndianInt(self: *Self, comptime T: type) ImageReadError!T {
+    pub fn readIntLittle(self: *Self, comptime T: type) ImageReadError!T {
         return mem.littleToNative(T, try self.readInt(T));
+    }
+
+    pub fn seekBy(self: *Self, amt: i64) ImageReadError!void {
+        if (amt < 0) {
+            const absAmt = std.math.absCast(amt);
+            const absAmtUsize = std.math.cast(usize, absAmt) catch std.math.maxInt(usize);
+            if (absAmtUsize > self.pos) {
+                self.pos = 0;
+            } else {
+                self.pos -= absAmtUsize;
+            }
+        } else {
+            const amtUsize = std.math.cast(usize, amt) catch std.math.maxInt(usize);
+            const newPos = self.pos +| amtUsize;
+            self.pos = std.math.min(self.buffer.len, newPos);
+        }
+    }
+
+    pub const Reader = std.io.Reader(*Self, ImageReadError, read);
+
+    pub fn reader(self: *Self) Reader {
+        return .{ .context = self };
     }
 };
 
@@ -181,7 +210,7 @@ pub fn FileReader(comptime buffer_size_type: type) type {
             mem.copy(u8, buf[0..available], self.buffer[self.pos..self.end]);
             self.pos = 0;
             self.end = 0;
-            try return self.file.read(buf[available..]);
+            return self.file.read(buf[available..]);
         }
 
         pub fn readStruct(self: *Self, comptime T: type) ImageReadError!*const T {
@@ -204,12 +233,31 @@ pub fn FileReader(comptime buffer_size_type: type) type {
             return result;
         }
 
-        pub fn readBigEndianInt(self: *Self, comptime T: type) ImageReadError!T {
+        pub fn readIntBig(self: *Self, comptime T: type) ImageReadError!T {
             return mem.bigToNative(T, try self.readInt(T));
         }
 
-        pub fn readLittleEndianInt(self: *Self, comptime T: type) ImageReadError!T {
+        pub fn readIntLittle(self: *Self, comptime T: type) ImageReadError!T {
             return mem.littleToNative(T, try self.readInt(T));
+        }
+
+        pub fn seekBy(self: *Self, amt: i64) ImageReadError!void {
+            if (amt < 0) {
+                const absAmt = std.math.absCast(amt);
+                const absAmtUsize = std.math.cast(usize, absAmt) catch std.math.maxInt(usize);
+                self.pos -|= absAmtUsize;
+            } else {
+                const amtUsize = std.math.cast(usize, amt) catch std.math.maxInt(usize);
+                const newPos = self.pos +| amtUsize;
+                if (newPos > self.end) return error.SeekError;
+                self.pos = newPos;
+            }
+        }
+
+        pub const Reader = std.io.Reader(*Self, ImageReadError, read);
+
+        pub fn reader(self: *Self) Reader {
+            return .{ .context = self };
         }
     };
 }
@@ -250,9 +298,14 @@ fn testReader(reader: *ImageReader8) !void {
         .b = .{ 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o' },
     }, ts.*);
     var buf: [8]u8 = undefined;
-    var readBytes = try reader.read(buf[0..]);
-    try std.testing.expectEqual(@as(usize, 8), readBytes);
-    try std.testing.expectEqualSlices(u8, "pqr01234", buf[0..8]);
-    var int = try reader.readBigEndianInt(u32);
-    try std.testing.expectEqual(@as(u32, 0x35363738), int);
+
+    var i : u32 = 0;
+    while (i < 2) : (i += 1) {
+        var readBytes = try reader.read(buf[0..]);
+        try std.testing.expectEqual(@as(usize, 8), readBytes);
+        try std.testing.expectEqualSlices(u8, "pqr01234", buf[0..8]);
+        var int = try reader.readIntBig(u32);
+        try std.testing.expectEqual(@as(u32, 0x35363738), int);
+        try reader.seekBy(-@sizeOf(u32) - 8);
+    }
 }
