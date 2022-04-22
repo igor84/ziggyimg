@@ -299,7 +299,7 @@ fn testReader(reader: *ImageReader8) !void {
     }, ts.*);
     var buf: [8]u8 = undefined;
 
-    var i : u32 = 0;
+    var i: u32 = 0;
     while (i < 2) : (i += 1) {
         var readBytes = try reader.read(buf[0..]);
         try std.testing.expectEqual(@as(usize, 8), readBytes);
