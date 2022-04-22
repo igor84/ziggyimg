@@ -95,4 +95,17 @@ pub const HeaderData = packed struct {
             else => bd == 8 or bd == 16,
         };
     }
+
+    pub fn allowsPalette(self: *const Self) bool {
+        return self.colorType == .Indexed or
+            self.colorType == .RgbColor or
+            self.colorType == .RgbaColor;
+    }
+};
+
+/// Palette chunk contains length / 3 palette entries and each entry gives standard rgb 24bit color
+pub const PaletteEntry = packed struct {
+    red: u8,
+    green: u8,
+    blue: u8,
 };
