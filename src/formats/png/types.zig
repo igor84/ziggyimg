@@ -24,24 +24,6 @@ pub const ColorType = enum(u8) {
     }
 };
 
-pub const BitDepth = enum(u8) {
-    bits1 = 1,
-    bits2 = 2,
-    bits4 = 4,
-    bits8 = 8,
-    bits16 = 16,
-
-    const Self = @This();
-
-    pub fn isValidForColorType(self: Self, colorType: ColorType) bool {
-        switch (colorType) {
-            .Grayscale => return utils.isEnumValid(self),
-            .Indexed => return self == .bits1 or self == .bits2 or self == .bits4 or self == .bits8,
-            else => return self == .bits8 or self == .bits16,
-        }
-    }
-};
-
 pub const FilterType = enum(u8) {
     None = 0,
     Sub = 1,
@@ -64,7 +46,7 @@ pub const FilterMethod = enum(u8) { Adaptive = 0 };
 
 pub const ChunkHeader = packed struct {
     lengthBigEndian: u32,
-    type: [4]u8,
+    type: u32,
 
     const Self = @This();
 
@@ -75,10 +57,11 @@ pub const ChunkHeader = packed struct {
 
 pub const HeaderData = packed struct {
     pub const ChunkType = "IHDR";
+    pub const ChunkTypeId = std.mem.bytesToValue(u32, ChunkType);
 
     widthBigEndian: u32,
     heightBigEndian: u32,
-    bitDepth: BitDepth,
+    bitDepth: u8,
     colorType: ColorType,
     compressionMethod: CompressionMethod,
     filterMethod: FilterMethod,
@@ -104,7 +87,12 @@ pub const HeaderData = packed struct {
         if (!utils.isEnumValid(self.compressionMethod)) return false;
         if (!utils.isEnumValid(self.filterMethod)) return false;
         if (!utils.isEnumValid(self.interlaceMethod)) return false;
-        if (!self.bitDepth.isValidForColorType(self.colorType)) return false;
-        return true;
+
+        var bd = self.bitDepth;
+        return switch (self.colorType) {
+            .Grayscale => bd == 1 or bd == 2 or bd == 4 or bd == 8 or bd == 16,
+            .Indexed => bd == 1 or bd == 2 or bd == 4 or bd == 8,
+            else => bd == 8 or bd == 16,
+        };
     }
 };
