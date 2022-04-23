@@ -1,6 +1,7 @@
 const std = @import("std");
 const utils = @import("../../utils.zig");
 const bigToNative = std.mem.bigToNative;
+const Allocator = std.mem.Allocator;
 
 pub const MagicHeader = "\x89PNG\x0D\x0A\x1A\x0A";
 
@@ -55,6 +56,22 @@ pub const ChunkHeader = packed struct {
     }
 };
 
+pub const ReaderOptions = struct {
+    /// Allocator for temporary allocations. Max 500KiB will be allocated from it.
+    /// If not provided Reader will use stack memory. Some temp allocations depend
+    /// on image size so they will use the main allocator since we can't guarantee
+    /// they are bounded. They will be allocated after the destination image and
+    /// freed internally.
+    tempAllocator: ?Allocator = null,
+
+    /// Should source image with palette be decoded as RGB image.
+    /// If decodeTransparencyToAlpha is also true the image will be decoded into RGBA image.
+    decodePaletteToRgb: bool = true,
+
+    /// If there is a tRNS chunk decode it into alpha channel.
+    decodeTransparencyToAlpha: bool = true,
+};
+
 pub const HeaderData = packed struct {
     pub const ChunkType = "IHDR";
     pub const ChunkTypeId = std.mem.bytesToValue(u32, ChunkType);
@@ -100,6 +117,55 @@ pub const HeaderData = packed struct {
         return self.colorType == .Indexed or
             self.colorType == .RgbColor or
             self.colorType == .RgbaColor;
+    }
+
+    pub fn maxPaletteSize(self: *const Self) u16 {
+        return if (self.bitDepth > 8) 256 else 1 << self.bitDepth;
+    }
+
+    /// What will be the color type of resulting image with the given options
+    pub fn destColorType(self: *const Self, options: *const ReaderOptions) ColorType {
+        return switch (self.colorType) {
+            .Grayscale => if (options.decodeTransparencyToAlpha) .GrayscaleAlpha else .Grayscale,
+            .RgbColor => if (options.decodeTransparencyToAlpha) .RgbaColor else .RgbColor,
+            .Indexed => if (options.decodePaletteToRgb) if (options.decodeTransparencyToAlpha) .RgbaColor else .RgbColor else .Indexed,
+            .GrayscaleAlpha => .GrayscaleAlpha,
+            .RgbaColor => .RgbaColor,
+        };
+    }
+
+    pub fn channelCount(self: *const Self) u8 {
+        return channelCountFrom(self.colorType);
+    }
+
+    pub fn destChannelCount(self: *const Self, options: *const ReaderOptions) u8 {
+        return channelCountFrom(self.destColorType(options));
+    }
+
+    fn channelCountFrom(colorType: ColorType) u8 {
+        return switch (colorType) {
+            .Grayscale => 1,
+            .RgbColor => 3,
+            .Indexed => 1,
+            .GrayscaleAlpha => 2,
+            .RgbaColor => 4,
+        };
+    }
+
+    pub fn pixelBitSize(self: *const Self) u8 {
+        self.bitDepth * self.channelCount();
+    }
+
+    pub fn destPixelBitSize(self: *const Self, options: *const ReaderOptions) u8 {
+        self.bitDepth * self.destChannelCount(options);
+    }
+
+    pub fn lineBytes(self: *const Self) u32 {
+        return (self.pixelSize() * self.width() + 7) / 8;
+    }
+
+    pub fn destLineBytes(self: *const Self, options: *const ReaderOptions) u32 {
+        return (self.destPixelSize(options) * self.width() + 7) / 8;
     }
 };
 

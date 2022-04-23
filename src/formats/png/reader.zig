@@ -2,6 +2,8 @@ const std = @import("std");
 const png = @import("types.zig");
 const imgio = @import("../../io.zig");
 const utils = @import("../../utils.zig");
+const color = @import("../../color.zig");
+const PixelStorage = @import("../../pixel_storage.zig").PixelStorage;
 const bigToNative = std.mem.bigToNative;
 const ImageReader = imgio.ImageReader16;
 const mem = std.mem;
@@ -31,6 +33,7 @@ pub fn fromMemory(buffer: []const u8) BufferReader {
 fn Reader(comptime isFromFile: bool) type {
     const RawReader = if (isFromFile) RawFileReader else RawBufferReader;
 
+    // Provides reader interface for Zlib stream that knows to read consecutive IDAT chunks.
     const IDatChunksReader = struct {
         rawReader: *RawReader,
         chunkBytes: usize,
@@ -73,6 +76,7 @@ fn Reader(comptime isFromFile: bool) type {
     };
 
     const IDATReader = std.io.Reader(*IDatChunksReader, ImageParsingError, IDatChunksReader.read);
+    const TRNSData = union(enum) { unset: u0, gray: u16, rgb: color.Rgb48, indexAlpha: []u8 };
 
     return struct {
         rawReader: RawReader,
@@ -97,19 +101,47 @@ fn Reader(comptime isFromFile: bool) type {
             return header.*;
         }
 
-        pub fn load(self: *Self, allocator: Allocator) ImageParsingError!void {
+        pub fn load(self: *Self, allocator: Allocator, options: png.ReaderOptions) ImageParsingError!void {
             var header = try self.loadHeader();
-            try self.loadWithHeader(header, allocator);
+            try self.loadWithHeader(header, allocator, options);
         }
 
         fn asU32(str: []const u8) u32 {
             return std.mem.bytesToValue(u32, str);
         }
 
-        pub fn loadWithHeader(self: *Self, header: png.HeaderData, allocator: Allocator) ImageParsingError!void {
-            // TODO: Can I avoid allocating space for the buffer if isFromFile?
-            var paletteBuffer: [256]png.PalletteEntry = undefined;
+        pub fn loadWithHeader(
+            self: *Self,
+            header: *const png.HeaderData,
+            allocator: Allocator,
+            options: png.ReaderOptions,
+        ) ImageParsingError!void {
+            if (options.tempAllocator) {
+                doLoad(self, header, allocator, options);
+            } else {
+                prepareTmpAllocatorAndLoad(self, header, allocator, &options);
+            }
+        }
+
+        pub fn prepareTmpAllocatorAndLoad(
+            self: *Self,
+            header: *const png.HeaderData,
+            allocator: Allocator,
+            options: png.ReaderOptions,
+        ) ImageParsingError!void {
+            var tmpBuffer: [500 * 1024]u8 = undefined;
+            options.tempAllocator = std.heap.FixedBufferAllocator.init(tmpBuffer);
+            doLoad(self, header, allocator, &options);
+        }
+
+        fn doLoad(
+            self: *Self,
+            header: *const png.HeaderData,
+            allocator: Allocator,
+            options: *const png.ReaderOptions,
+        ) ImageParsingError!void {
             var palette: []png.PaletteEntry = .{};
+            var trnsData = TRNSData{ .Unset = undefined };
 
             while (true) {
                 var chunk = try self.rawReader.readStruct(png.ChunkHeader);
@@ -123,39 +155,82 @@ fn Reader(comptime isFromFile: bool) type {
                         break;
                     },
                     asU32("IDAT") => {
-                        self.readAllData(chunk.length(), allocator);
+                        //var result = PixelStorage.init(allocator, pixelFormat, header.width() * header.height());
+                        self.readAllData(chunk.length(), allocator, options);
                     },
                     asU32("PLTE") => {
                         if (!header.allowsPalette()) return error.InvalidData;
                         if (palette.len > 0) return error.InvalidData;
-                        // TODO if data found error
-                        // TODO if transparency found error
-                        var length = chunk.length();
-                        if (length % 3 != 0) return error.InvalidData;
-                        length /= 3;
-                        if (length > 256) return error.InvalidData;
-                        if (length > 1 << @enumToInt(header.bitDepth)) return error.InvalidData;
-                        palette = paletteBuffer[0..length];
-                        try self.rawReader.read(palette);
+                        // TODO if IDAT already found ignore this palette
+                        // We ignore if tRNS is already found
+                        var chunkLength = chunk.length();
+                        if (chunkLength % 3 != 0) return error.InvalidData;
+                        var length = chunkLength / 3;
+                        if (length > header.maxPaletteSize()) return error.InvalidData;
+                        if (!isFromFile) {
+                            palette = std.mem.bytesAsSlice(png.PaletteType, try self.rawReader.readNoAlloc(chunkLength));
+                        } else {
+                            palette = options.tempAllocator.?.alloc(png.PaletteEntry, length);
+                            try self.rawReader.read(palette);
+                        }
 
                         var expectedCrc = try self.rawReader.readIntBig();
                         var actualCrc = Crc32.hash(mem.sliceAsBytes(palette));
                         if (expectedCrc != actualCrc) return error.InvalidData;
+                    },
+                    asU32("tRNS") => {
+                        // TODO if IDAT already found ignore this chunk
+                        if (!options.decodeTransparencyToAlpha) {
+                            // Just skip this chunk and its crc
+                            self.rawReader.readNoAlloc(chunk.length() + @sizeOf(u32));
+                        } else {
+                            trnsData = self.readTrnsChunk(chunk.length(), header, options);
+                        }
                     },
                     else => {},
                 }
             }
         }
 
-        fn readAllData(self: *Self, firstChunkLength: u32, allocator: Allocator) void {
+        fn readTrnsChunk(self: *Self, chunkLength: u32, header: *const png.HeaderData, options: *const png.ReaderOptions) TRNSData {
+            // We will allow multiple tRNS chunks and load the last one
+            // We ignore if we encounter this chunk with colorType that already has alpha
+            var trnsData = TRNSData{ .unset = undefined };
+            switch (header.colorType) {
+                .Grayscale => {
+                    if (chunkLength == 2) {
+                        trnsData = .{ .Gray = try self.rawReader.readIntBig(u16) };
+                    } else {
+                        try self.rawReader.readNoAlloc(chunkLength); // Skip invalid
+                    }
+                },
+                .Indexed => {
+                    if (chunkLength <= header.maxPaletteSize()) {
+                        trnsData = .{ .IndexAlpha = options.tempAllocator.?.alloc(u8, chunkLength) };
+                        try self.rawReader.read(trnsData.IndexAlpha);
+                    } else {
+                        try self.rawReader.readNoAlloc(chunkLength); // Skip invalid
+                    }
+                },
+                .RgbColor => {
+                    if (chunkLength == @sizeOf(color.Rgb48)) {
+                        trnsData = .{ .Rgb = try self.rawReader.readStruct(color.Rgb48).* };
+                    } else {
+                        try self.rawReader.readNoAlloc(chunkLength); // Skip invalid
+                    }
+                },
+                else => try self.rawReader.readNoAlloc(chunkLength), // Skip invalid
+            }
+            // Read but ignore Crc since this is not critical chunk
+            _ = try self.rawReader.readNoAlloc(@sizeOf(u32));
+            return trnsData;
+        }
+
+        fn readAllData(self: *Self, firstChunkLength: u32, options: *const png.ReaderOptions) void {
             // decompressor.zig:294 claims to use 300KiB at most from provided allocator.
             // Original zlib claims it only needs 44KiB so next task is to rewrite zig zlib :).
-            // TODO: Is it too much to take 300KiB from Stack if on windows its size is 2MiB?
-            var zlibBuffer: [300 * 1024]u8 = undefined;
-            var zlibAllocator = std.heap.FixedBufferAllocator.init(zlibBuffer);
             var idatReader: IDATReader = .{ .context = IDatChunksReader.init(&self.reader, firstChunkLength) };
-            _ = try std.compress.zlib.zlibStream(zlibAllocator, idatReader);
-            _ = allocator;
+            _ = try std.compress.zlib.zlibStream(options.tempAllocator, idatReader);
         }
     };
 }
