@@ -2,6 +2,7 @@ const std = @import("std");
 const utils = @import("../../utils.zig");
 const bigToNative = std.mem.bigToNative;
 const Allocator = std.mem.Allocator;
+const PixelFormat = @import("../../pixel_format.zig").PixelFormat;
 
 pub const MagicHeader = "\x89PNG\x0D\x0A\x1A\x0A";
 
@@ -70,7 +71,14 @@ pub const ReaderOptions = struct {
 
     /// If there is a tRNS chunk decode it into alpha channel.
     decodeTransparencyToAlpha: bool = true,
+    // This needs to
+    // 1. decode and save tRNS chunk data => register chunk decoder
+    // 2. when the result buffer needs to be allocated inform the system that it should contain the alpha channel => register customPixelFormatGetter
+    // 3. After defilter process each pixel so alpha channel is added => register custom stream
 };
+
+// Reading IDAT chunks:
+// 1. IDatReader -> zlibStream -> defilterStream -> optionalStreams -> deinterlace or just copy to dest
 
 pub const HeaderData = packed struct {
     pub const ChunkType = "IHDR";
@@ -152,7 +160,7 @@ pub const HeaderData = packed struct {
         };
     }
 
-    pub fn pixelBitSize(self: *const Self) u8 {
+    pub fn pixelBits(self: *const Self) u8 {
         self.bitDepth * self.channelCount();
     }
 
@@ -161,17 +169,40 @@ pub const HeaderData = packed struct {
     }
 
     pub fn lineBytes(self: *const Self) u32 {
-        return (self.pixelSize() * self.width() + 7) / 8;
+        return (self.pixelBits() * self.width() + 7) / 8;
     }
 
     pub fn destLineBytes(self: *const Self, options: *const ReaderOptions) u32 {
         return (self.destPixelSize(options) * self.width() + 7) / 8;
     }
-};
 
-/// Palette chunk contains length / 3 palette entries and each entry gives standard rgb 24bit color
-pub const PaletteEntry = packed struct {
-    red: u8,
-    green: u8,
-    blue: u8,
+    pub fn getPixelFormat(self: *const Self) PixelFormat {
+        return switch (self.colorType) {
+            .Grayscale => switch (self.bitDepth) {
+                1 => .Grayscale1,
+                2 => .Grayscale2,
+                4 => .Grayscale4,
+                8 => .Grayscale8,
+                16 => .Grayscale16,
+            },
+            .RgbColor => switch (self.bitDepth) {
+                8 => .Rgb24,
+                16 => .Rgb48,
+            },
+            .Indexed => switch (self.bitDepth) {
+                1 => .Bpp1,
+                2 => .Bpp2,
+                4 => .Bpp4,
+                8 => .Bpp8,
+            },
+            .GrayscaleAlpha => switch (self.bitDepth) {
+                8 => .Grayscale8Alpha,
+                16 => .Grayscale16Alpha,
+            },
+            .RgbaColor => switch (self.bitDepth) {
+                8 => .Rgba32,
+                16 => .Rgba64,
+            },
+        };
+    }
 };
