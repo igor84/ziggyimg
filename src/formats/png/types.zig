@@ -60,8 +60,8 @@ pub const ReaderOptions = struct {
     /// Allocator for temporary allocations. Max 500KiB will be allocated from it.
     /// If not provided Reader will use stack memory. Some temp allocations depend
     /// on image size so they will use the main allocator since we can't guarantee
-    /// they are bounded. They will be allocated after the destination image and
-    /// freed internally.
+    /// they are bounded. They will be allocated after the destination image to
+    /// reduce memory fragmentation and freed internally.
     tempAllocator: ?Allocator = null,
 
     /// Should source image with palette be decoded as RGB image.

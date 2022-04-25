@@ -142,6 +142,7 @@ fn Reader(comptime isFromFile: bool) type {
         ) ImageParsingError!void {
             var palette: []png.PaletteEntry = .{};
             var trnsData = TRNSData{ .Unset = undefined };
+            var dataFound = false;
 
             while (true) {
                 var chunk = try self.rawReader.readStruct(png.ChunkHeader);
@@ -155,6 +156,8 @@ fn Reader(comptime isFromFile: bool) type {
                         break;
                     },
                     asU32("IDAT") => {
+                        if (dataFound) return error.InvalidData;
+                        dataFound = true;
                         //var result = PixelStorage.init(allocator, pixelFormat, header.width() * header.height());
                         self.readAllData(chunk.length(), allocator, options);
                     },
@@ -167,20 +170,25 @@ fn Reader(comptime isFromFile: bool) type {
                         if (chunkLength % 3 != 0) return error.InvalidData;
                         var length = chunkLength / 3;
                         if (length > header.maxPaletteSize()) return error.InvalidData;
-                        if (!isFromFile) {
-                            palette = std.mem.bytesAsSlice(png.PaletteType, try self.rawReader.readNoAlloc(chunkLength));
+                        if (dataFound) {
+                            // If IDAT was already processed we skip and ignore this palette
+                            try self.rawReader.readNoAlloc(chunkLength + @sizeOf(u32));
                         } else {
-                            palette = options.tempAllocator.?.alloc(png.PaletteEntry, length);
-                            try self.rawReader.read(palette);
-                        }
+                            if (!isFromFile) {
+                                var paletteBytes = try self.rawReader.readNoAlloc(chunkLength);
+                                palette = std.mem.bytesAsSlice(png.PaletteType, paletteBytes);
+                            } else {
+                                palette = options.tempAllocator.?.alloc(png.PaletteEntry, length);
+                                try self.rawReader.read(palette);
+                            }
 
-                        var expectedCrc = try self.rawReader.readIntBig();
-                        var actualCrc = Crc32.hash(mem.sliceAsBytes(palette));
-                        if (expectedCrc != actualCrc) return error.InvalidData;
+                            var expectedCrc = try self.rawReader.readIntBig();
+                            var actualCrc = Crc32.hash(mem.sliceAsBytes(palette));
+                            if (expectedCrc != actualCrc) return error.InvalidData;
+                        }
                     },
                     asU32("tRNS") => {
-                        // TODO if IDAT already found ignore this chunk
-                        if (!options.decodeTransparencyToAlpha) {
+                        if (!options.decodeTransparencyToAlpha or dataFound) {
                             // Just skip this chunk and its crc
                             self.rawReader.readNoAlloc(chunk.length() + @sizeOf(u32));
                         } else {
