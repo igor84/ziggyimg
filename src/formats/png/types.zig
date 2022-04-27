@@ -84,11 +84,71 @@ pub const RowProcessData = struct {
 
 pub const ReaderProcessor = struct {
     id: u32,
-    // TODO: Maybe make this work with a vtable like Allocator does it
     context: *anyopaque,
-    chunkProcessor: ?fn (context: *anyopaque, data: *ChunkProcessData) ImageParsingError!PixelFormat,
-    paletteProcessor: ?fn (context: *anyopaque, data: *PaletteProcessData) ImageParsingError!void,
-    dataRowProcessor: ?fn (context: *anyopaque, data: *RowProcessData) ImageParsingError!PixelFormat,
+    vtable: *const VTable,
+
+    const VTable = struct {
+        chunkProcessor: ?fn (context: *anyopaque, data: *ChunkProcessData) ImageParsingError!PixelFormat,
+        paletteProcessor: ?fn (context: *anyopaque, data: *PaletteProcessData) ImageParsingError!void,
+        dataRowProcessor: ?fn (context: *anyopaque, data: *RowProcessData) ImageParsingError!PixelFormat,
+    };
+
+    const Self = @This();
+
+    pub inline fn processChunk(self: *Self, data: *ChunkProcessData) ImageParsingError!PixelFormat {
+        return if (self.vtable.chunkProcessor) |cp| cp(self.context, data) else data.currentFormat;
+    }
+
+    pub inline fn processPalette(self: *Self, data: *PaletteProcessData) ImageParsingError!void {
+        if (self.vtable.paletteProcessor) |pp| try pp(self.context, data);
+    }
+
+    pub inline fn processDataRow(self: *Self, data: *RowProcessData) ImageParsingError!PixelFormat {
+        return if (self.vtable.dataRowProcessor) |drp| drp(self.context, data) else data.destFormat;
+    }
+
+    pub fn init(
+        id: *const [4]u8,
+        context: anytype,
+        comptime chunkProcessorFn: ?fn (ptr: @TypeOf(context), data: *ChunkProcessData) ImageParsingError!PixelFormat,
+        comptime paletteProcessorFn: ?fn (ptr: @TypeOf(context), data: *PaletteProcessData) ImageParsingError!void,
+        comptime dataRowProcessorFn: ?fn (ptr: @TypeOf(context), data: *RowProcessData) ImageParsingError!PixelFormat,
+    ) Self {
+        const Ptr = @TypeOf(context);
+        const ptr_info = @typeInfo(Ptr);
+
+        std.debug.assert(ptr_info == .Pointer); // Must be a pointer
+        std.debug.assert(ptr_info.Pointer.size == .One); // Must be a single-item pointer
+
+        const alignment = ptr_info.Pointer.alignment;
+
+        const gen = struct {
+            fn chunkProcessor(ptr: *anyopaque, data: *ChunkProcessData) ImageParsingError!PixelFormat {
+                const self = @ptrCast(Ptr, @alignCast(alignment, ptr));
+                return @call(.{ .modifier = .always_inline }, chunkProcessorFn.?, .{ self, data });
+            }
+            fn paletteProcessor(ptr: *anyopaque, data: *PaletteProcessData) ImageParsingError!void {
+                const self = @ptrCast(Ptr, @alignCast(alignment, ptr));
+                return @call(.{ .modifier = .always_inline }, paletteProcessorFn.?, .{ self, data });
+            }
+            fn dataRowProcessor(ptr: *anyopaque, data: *RowProcessData) ImageParsingError!PixelFormat {
+                const self = @ptrCast(Ptr, @alignCast(alignment, ptr));
+                return @call(.{ .modifier = .always_inline }, dataRowProcessorFn.?, .{ self, data });
+            }
+
+            const vtable = VTable{
+                .chunkProcessor = if (chunkProcessorFn == null) null else chunkProcessor,
+                .paletteProcessor = if (paletteProcessorFn == null) null else paletteProcessor,
+                .dataRowProcessor = if (dataRowProcessorFn == null) null else dataRowProcessor,
+            };
+        };
+
+        return .{
+            .id = std.mem.bytesToValue(u32, id),
+            .context = context,
+            .vtable = &gen.vtable,
+        };
+    }
 };
 
 pub const TrnsProcessor = struct {
@@ -99,19 +159,18 @@ pub const TrnsProcessor = struct {
     pltOrDataFound: bool = false,
 
     pub fn processor(self: *Self) ReaderProcessor {
-        return .{
-            .id = std.mem.bytesToValue(u32, "tRNS"),
-            .context = self,
-            .chunkProcessor = processChunk,
-            .paletteProcessor = processPalette,
-            .dataRowProcessor = processDataRow,
-        };
+        return ReaderProcessor.init(
+            "tRNS",
+            self,
+            processChunk,
+            processPalette,
+            processDataRow,
+        );
     }
 
-    pub fn processChunk(selfPtr: *anyopaque, data: *ChunkProcessData) ImageParsingError!PixelFormat {
+    pub fn processChunk(self: *Self, data: *ChunkProcessData) ImageParsingError!PixelFormat {
         // We will allow multiple tRNS chunks and load the last one
         // We ignore if we encounter this chunk with colorType that already has alpha
-        var self = @ptrCast(*Self, @alignCast(@typeInfo(*Self).Pointer.alignment, selfPtr));
         var resultFormat = data.currentFormat;
         if (self.pltOrDataFound) {
             _ = try data.rawReader.readNoAlloc(data.chunkLength + @sizeOf(u32)); // Skip invalid
@@ -150,8 +209,7 @@ pub const TrnsProcessor = struct {
         return resultFormat;
     }
 
-    pub fn processPalette(selfPtr: *anyopaque, data: *PaletteProcessData) ImageParsingError!void {
-        var self = @ptrCast(*Self, @alignCast(@typeInfo(*Self).Pointer.alignment, selfPtr));
+    pub fn processPalette(self: *Self, data: *PaletteProcessData) ImageParsingError!void {
         self.pltOrDataFound = true;
         switch (self.trnsData) {
             .indexAlpha => |indexAlpha| {
@@ -163,8 +221,7 @@ pub const TrnsProcessor = struct {
         }
     }
 
-    pub fn processDataRow(selfPtr: *anyopaque, data: *RowProcessData) ImageParsingError!PixelFormat {
-        var self = @ptrCast(*Self, @alignCast(@typeInfo(*Self).Pointer.alignment, selfPtr));
+    pub fn processDataRow(self: *Self, data: *RowProcessData) ImageParsingError!PixelFormat {
         self.pltOrDataFound = true;
         if (data.sourceFormat.isIndex()) return data.sourceFormat;
         var pixelStride: u8 = switch (data.destFormat) {

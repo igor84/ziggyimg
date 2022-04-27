@@ -212,13 +212,13 @@ fn Reader(comptime isFromFile: bool) type {
         }
 
         fn processChunk(id: u32, chunkProcessData: *png.ChunkProcessData) ImageParsingError!void {
-            for (chunkProcessData.options.processors) |processor| {
+            var resultFormat = chunkProcessData.currentFormat;
+            for (chunkProcessData.options.processors) |*processor| {
                 if (processor.id == id) {
-                    if (processor.chunkProcessor) |chunkProcessor| {
-                        chunkProcessData.currentFormat = try chunkProcessor(processor.context, chunkProcessData);
-                    }
+                    resultFormat = try processor.processChunk(chunkProcessData);
                 }
             }
+            chunkProcessData.currentFormat = resultFormat;
         }
 
         fn readAllData(
@@ -301,10 +301,8 @@ fn Reader(comptime isFromFile: bool) type {
         }
 
         fn processPalette(processors: []png.ReaderProcessor, palette: []color.Colorf32) ImageParsingError!void {
-            for (processors) |processor| {
-                if (processor.paletteProcessor) |paletteProcessor| {
-                    try paletteProcessor(processor.context, &.{ .palette = palette });
-                }
+            for (processors) |*processor| {
+                try processor.processPalette(&.{ .palette = palette });
             }
         }
 
