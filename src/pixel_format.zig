@@ -43,4 +43,8 @@ pub const PixelFormat = enum(u32) {
     pub fn isRgba(self: Self) bool {
         return self == .Rgba32 or self == .Rgba64;
     }
+
+    pub fn is16Bit(self: Self) bool {
+        return @enumToInt(self) & 0xff == 0x10;
+    }
 };

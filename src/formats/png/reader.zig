@@ -250,7 +250,7 @@ fn Reader(comptime isFromFile: bool) type {
             // decompressor.zig:294 claims to use 300KiB at most from provided allocator.
             // Original zlib claims it only needs 44KiB so next task is to rewrite zig zlib :).
 
-            var pixelFormat = header.getPixelFormat();
+            var pixelFormat = chunkProcessData.currentFormat;
             const width = header.width();
             const height = header.height();
             var result = try PixelStorage.init(allocator, pixelFormat, width * height);
@@ -286,18 +286,23 @@ fn Reader(comptime isFromFile: bool) type {
                 else => {},
             }
 
+            var dest = result.pixelsAsBytes();
+
             // For defiltering we need to keep two rows in memory so we allocate space for that
-            const filterStride = (header.bitDepth + 7) / 8 * header.channelCount(); // 1 to 8 bytes
+            var channelCount = header.channelCount();
+            const filterStride = (header.bitDepth + 7) / 8 * channelCount; // 1 to 8 bytes
             const lineBytes = header.lineBytes();
             const virtualLineBytes = lineBytes + filterStride;
-            var twoRowsBuffer = try allocator.alloc(u8, 2 * virtualLineBytes);
-            defer allocator.free(twoRowsBuffer);
-            mem.set(u8, twoRowsBuffer, 0);
-            var prevRow = twoRowsBuffer[0..virtualLineBytes];
-            var currentRow = twoRowsBuffer[virtualLineBytes..];
+            const resultLineBytes = @intCast(u32, dest.len / height);
+            var tmpBuffer = try allocator.alloc(u8, 2 * virtualLineBytes + resultLineBytes);
+            defer allocator.free(tmpBuffer);
+            mem.set(u8, tmpBuffer, 0);
+            var prevRow = tmpBuffer[0..virtualLineBytes];
+            var currentRow = tmpBuffer[virtualLineBytes .. 2 * virtualLineBytes];
+            var destRow = tmpBuffer[2 * virtualLineBytes ..];
+            const pixelStride = resultLineBytes / width;
 
             var i: u32 = 0;
-            var dest = result.pixelsAsBytes();
             const destLineStride = dest.len / height;
             var destPixelFormat = pixelFormat;
             while (i < height) : (i += 1) {
@@ -306,8 +311,52 @@ fn Reader(comptime isFromFile: bool) type {
                 try defilter(currentRow, prevRow, filterStride);
                 currentRow[filterStride - 1] = 0; // zero out the filter byte
 
+                // Spread raw data into destRow
+                var pix: u32 = 0;
+                var srcPix: u32 = filterStride;
+                switch (header.bitDepth) {
+                    1, 2, 4 => {
+                        if (pixelFormat.is16Bit()) pix += pixelStride - 1;
+                        while (pix < resultLineBytes) {
+                            // colorType must be Grayscale or Indexed
+                            var shift = @intCast(i4, 8 - header.bitDepth);
+                            var mask = @as(u8, 0xff) << @intCast(u3, shift);
+
+                            while (shift > 0 and pix < resultLineBytes) : (shift -= @intCast(i4, header.bitDepth)) {
+                                destRow[pix] = (currentRow[srcPix] & mask) >> @intCast(u3, shift);
+                                pix += pixelStride;
+                            }
+                            srcPix += 1;
+                        }
+                    },
+                    8 => {
+                        if (pixelFormat.is16Bit()) pix += pixelStride - channelCount;
+                        while (pix < resultLineBytes) : (pix += pixelStride) {
+                            var c: u32 = 0;
+                            while (c < channelCount) : (c += 1) {
+                                destRow[pix + c] = currentRow[srcPix + c];
+                            }
+                            srcPix += channelCount;
+                        }
+                    },
+                    16 => {
+                        var currentRow16 = mem.bytesAsSlice(u16, currentRow);
+                        var destRow16 = mem.bytesAsSlice(u16, destRow);
+                        const pixelStride16 = pixelStride / 2;
+                        while (pix < destRow16.len) : (pix += pixelStride16) {
+                            var c: u32 = 0;
+                            while (c < channelCount) : (c += 1) {
+                                destRow16[pix + c] = currentRow16[srcPix + c];
+                            }
+                            srcPix += channelCount;
+                        }
+                    },
+                    else => unreachable,
+                }
+
                 var resultFormat = process(currentRow[filterStride..], pixelFormat, dest[0..destLineStride], destPixelFormat);
                 if (resultFormat != destPixelFormat) return error.InvalidData;
+                mem.copy(u8, dest[0..destLineStride], destRow);
                 dest = dest[destLineStride..];
 
                 var tmp = prevRow;
