@@ -35,38 +35,65 @@ pub fn fromMemory(buffer: []const u8) BufferReader {
 fn Reader(comptime isFromFile: bool) type {
     const RawReader = if (isFromFile) RawFileReader else RawBufferReader;
 
+    const common = struct {
+        pub fn processChunk(id: u32, chunkProcessData: *png.ChunkProcessData) ImageParsingError!void {
+            var resultFormat = chunkProcessData.currentFormat;
+            for (chunkProcessData.options.processors) |*processor| {
+                if (processor.id == id) {
+                    resultFormat = try processor.processChunk(chunkProcessData);
+                }
+            }
+            chunkProcessData.currentFormat = resultFormat;
+        }
+    };
+
     // Provides reader interface for Zlib stream that knows to read consecutive IDAT chunks.
     const IDatChunksReader = struct {
         rawReader: *RawReader,
-        chunkBytes: usize,
+        processors: []png.ReaderProcessor,
+        chunkProcessData: *png.ChunkProcessData,
         crc: Crc32,
 
         const Self = @This();
 
-        fn init(reader: *RawReader, firstChunkLength: u32) Self {
-            return .{ .rawReader = reader, .chunkBytes = firstChunkLength, .crc = Crc32.init() };
+        fn init(
+            reader: *RawReader,
+            processors: []png.ReaderProcessor,
+            chunkProcessData: *png.ChunkProcessData,
+        ) Self {
+            return .{
+                .rawReader = reader,
+                .processors = processors,
+                .chunkProcessData = chunkProcessData,
+                .crc = Crc32.init(),
+            };
         }
 
         fn read(self: *Self, dest: []u8) ImageParsingError!usize {
-            if (self.chunkBytes == 0) return 0;
+            if (self.chunkProcessData.chunkLength == 0) return 0;
             var newDest = dest;
 
+            var chunkLength = self.chunkProcessData.chunkLength;
+
             var toRead = newDest.len;
-            if (toRead > self.chunkBytes) toRead = self.chunkBytes;
+            if (toRead > chunkLength) toRead = chunkLength;
             var readCount = try self.rawReader.read(newDest[0..toRead]);
-            self.chunkBytes -= readCount;
+            self.chunkProcessData.chunkLength -= @intCast(u32, readCount);
             self.crc.update(newDest[0..readCount]);
 
-            if (self.chunkBytes == 0) {
+            if (chunkLength == 0) {
                 // First read and check CRC of just finished chunk
                 const expectedCrc = try self.rawReader.readIntBig(u32);
                 if (self.crc.final() != expectedCrc) return error.InvalidData;
+
+                try common.processChunk(png.HeaderData.ChunkTypeId, self.chunkProcessData);
+
                 self.crc = Crc32.init();
 
                 // Try to load the next IDAT chunk
                 var chunk = try self.rawReader.readStruct(png.ChunkHeader);
-                if (chunk.type == std.mem.bytesToValue(u32, "IDAT")) {
-                    self.chunkBytes = chunk.length();
+                if (chunk.type == png.HeaderData.ChunkTypeId) {
+                    self.chunkProcessData.chunkLength = chunk.length();
                 } else {
                     // Return to the start of the next chunk so code in main struct can read it
                     try self.rawReader.seekBy(-@sizeOf(png.ChunkHeader));
@@ -153,7 +180,7 @@ fn Reader(comptime isFromFile: bool) type {
                 .header = header,
                 .options = options,
             };
-            try processChunk(png.HeaderData.ChunkTypeId, &chunkProcessData);
+            try common.processChunk(png.HeaderData.ChunkTypeId, &chunkProcessData);
 
             while (true) {
                 var chunk = try self.rawReader.readStruct(png.ChunkHeader);
@@ -166,14 +193,15 @@ fn Reader(comptime isFromFile: bool) type {
                         if (!dataFound) return error.InvalidData;
                         _ = try self.rawReader.readInt(u32); // Read and ignore the crc
                         chunkProcessData.chunkLength = chunk.length();
-                        try processChunk(chunk.type, &chunkProcessData);
+                        try common.processChunk(chunk.type, &chunkProcessData);
                         break;
                     },
                     asU32("IDAT") => {
                         if (dataFound) return error.InvalidData;
                         if (header.colorType == .Indexed and palette.len == 0) return error.InvalidData;
                         dataFound = true;
-                        _ = try self.readAllData(chunk.length(), header, palette, allocator, options);
+                        chunkProcessData.chunkLength = chunk.length();
+                        _ = try self.readAllData(header, palette, allocator, options, &chunkProcessData);
                     },
                     asU32("PLTE") => {
                         if (!header.allowsPalette()) return error.InvalidData;
@@ -200,34 +228,24 @@ fn Reader(comptime isFromFile: bool) type {
                             var actualCrc = Crc32.hash(mem.sliceAsBytes(palette));
                             if (expectedCrc != actualCrc) return error.InvalidData;
                             chunkProcessData.chunkLength = chunkLength;
-                            try processChunk(chunk.type, &chunkProcessData);
+                            try common.processChunk(chunk.type, &chunkProcessData);
                         }
                     },
                     else => {
                         chunkProcessData.chunkLength = chunk.length();
-                        try processChunk(chunk.type, &chunkProcessData);
+                        try common.processChunk(chunk.type, &chunkProcessData);
                     },
                 }
             }
         }
 
-        fn processChunk(id: u32, chunkProcessData: *png.ChunkProcessData) ImageParsingError!void {
-            var resultFormat = chunkProcessData.currentFormat;
-            for (chunkProcessData.options.processors) |*processor| {
-                if (processor.id == id) {
-                    resultFormat = try processor.processChunk(chunkProcessData);
-                }
-            }
-            chunkProcessData.currentFormat = resultFormat;
-        }
-
         fn readAllData(
             self: *Self,
-            firstChunkLength: u32,
             header: *const png.HeaderData,
             palette: []color.Rgb24,
             allocator: Allocator,
             options: *const png.ReaderOptions,
+            chunkProcessData: *png.ChunkProcessData,
         ) ImageParsingError!PixelStorage {
             // decompressor.zig:294 claims to use 300KiB at most from provided allocator.
             // Original zlib claims it only needs 44KiB so next task is to rewrite zig zlib :).
@@ -236,7 +254,7 @@ fn Reader(comptime isFromFile: bool) type {
             const width = header.width();
             const height = header.height();
             var result = try PixelStorage.init(allocator, pixelFormat, width * height);
-            var idatChunksReader = IDatChunksReader.init(&self.rawReader, firstChunkLength);
+            var idatChunksReader = IDatChunksReader.init(&self.rawReader, options.processors, chunkProcessData);
             var idatReader: IDATReader = .{ .context = &idatChunksReader };
             var decompressStream = std.compress.zlib.zlibStream(options.tempAllocator.?, idatReader) catch return error.InvalidData;
 
