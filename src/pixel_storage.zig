@@ -1,7 +1,8 @@
 const PixelFormat = @import("pixel_format.zig").PixelFormat;
 const color = @import("color.zig");
 const std = @import("std");
-const Allocator = std.mem.Allocator;
+const mem = std.mem;
+const Allocator = mem.Allocator;
 const Grayscale1 = color.Grayscale1;
 const Grayscale2 = color.Grayscale2;
 const Grayscale4 = color.Grayscale4;
@@ -49,11 +50,11 @@ pub const IndexedStorage8 = IndexedStorage(u8);
 pub const IndexedStorage16 = IndexedStorage(u16);
 
 pub const PixelStorage = union(PixelFormat) {
-    Bpp1: IndexedStorage1,
-    Bpp2: IndexedStorage2,
-    Bpp4: IndexedStorage4,
-    Bpp8: IndexedStorage8,
-    Bpp16: IndexedStorage16,
+    Index1: IndexedStorage1,
+    Index2: IndexedStorage2,
+    Index4: IndexedStorage4,
+    Index8: IndexedStorage8,
+    Index16: IndexedStorage16,
     Grayscale1: []Grayscale1,
     Grayscale2: []Grayscale2,
     Grayscale4: []Grayscale4,
@@ -75,29 +76,29 @@ pub const PixelStorage = union(PixelFormat) {
 
     pub fn init(allocator: Allocator, format: PixelFormat, pixel_count: usize) !Self {
         return switch (format) {
-            .Bpp1 => {
+            .Index1 => {
                 return Self{
-                    .Bpp1 = try IndexedStorage(u1).init(allocator, pixel_count),
+                    .Index1 = try IndexedStorage(u1).init(allocator, pixel_count),
                 };
             },
-            .Bpp2 => {
+            .Index2 => {
                 return Self{
-                    .Bpp2 = try IndexedStorage(u2).init(allocator, pixel_count),
+                    .Index2 = try IndexedStorage(u2).init(allocator, pixel_count),
                 };
             },
-            .Bpp4 => {
+            .Index4 => {
                 return Self{
-                    .Bpp4 = try IndexedStorage(u4).init(allocator, pixel_count),
+                    .Index4 = try IndexedStorage(u4).init(allocator, pixel_count),
                 };
             },
-            .Bpp8 => {
+            .Index8 => {
                 return Self{
-                    .Bpp8 = try IndexedStorage(u8).init(allocator, pixel_count),
+                    .Index8 = try IndexedStorage(u8).init(allocator, pixel_count),
                 };
             },
-            .Bpp16 => {
+            .Index16 => {
                 return Self{
-                    .Bpp16 = try IndexedStorage(u16).init(allocator, pixel_count),
+                    .Index16 = try IndexedStorage(u16).init(allocator, pixel_count),
                 };
             },
             .Grayscale1 => {
@@ -185,11 +186,11 @@ pub const PixelStorage = union(PixelFormat) {
 
     pub fn deinit(self: Self, allocator: Allocator) void {
         switch (self) {
-            .Bpp1 => |data| data.deinit(allocator),
-            .Bpp2 => |data| data.deinit(allocator),
-            .Bpp4 => |data| data.deinit(allocator),
-            .Bpp8 => |data| data.deinit(allocator),
-            .Bpp16 => |data| data.deinit(allocator),
+            .Index1 => |data| data.deinit(allocator),
+            .Index2 => |data| data.deinit(allocator),
+            .Index4 => |data| data.deinit(allocator),
+            .Index8 => |data| data.deinit(allocator),
+            .Index16 => |data| data.deinit(allocator),
             .Grayscale1 => |data| allocator.free(data),
             .Grayscale2 => |data| allocator.free(data),
             .Grayscale4 => |data| allocator.free(data),
@@ -211,11 +212,11 @@ pub const PixelStorage = union(PixelFormat) {
 
     pub fn len(self: Self) usize {
         return switch (self) {
-            .Bpp1 => |data| data.indices.len,
-            .Bpp2 => |data| data.indices.len,
-            .Bpp4 => |data| data.indices.len,
-            .Bpp8 => |data| data.indices.len,
-            .Bpp16 => |data| data.indices.len,
+            .Index1 => |data| data.indices.len,
+            .Index2 => |data| data.indices.len,
+            .Index4 => |data| data.indices.len,
+            .Index8 => |data| data.indices.len,
+            .Index16 => |data| data.indices.len,
             .Grayscale1 => |data| data.len,
             .Grayscale2 => |data| data.len,
             .Grayscale4 => |data| data.len,
@@ -237,12 +238,38 @@ pub const PixelStorage = union(PixelFormat) {
 
     pub fn isIndexed(self: Self) bool {
         return switch (self) {
-            .Bpp1 => true,
-            .Bpp2 => true,
-            .Bpp4 => true,
-            .Bpp8 => true,
-            .Bpp16 => true,
+            .Index1 => true,
+            .Index2 => true,
+            .Index4 => true,
+            .Index8 => true,
+            .Index16 => true,
             else => false,
+        };
+    }
+
+    pub fn pixelsAsBytes(self: Self) []u8 {
+        return switch (self) {
+            .Index1 => |data| mem.sliceAsBytes(data.indices),
+            .Index2 => |data| mem.sliceAsBytes(data.indices),
+            .Index4 => |data| mem.sliceAsBytes(data.indices),
+            .Index8 => |data| mem.sliceAsBytes(data.indices),
+            .Index16 => |data| mem.sliceAsBytes(data.indices),
+            .Grayscale1 => |data| mem.sliceAsBytes(data),
+            .Grayscale2 => |data| mem.sliceAsBytes(data),
+            .Grayscale4 => |data| mem.sliceAsBytes(data),
+            .Grayscale8 => |data| mem.sliceAsBytes(data),
+            .Grayscale8Alpha => |data| mem.sliceAsBytes(data),
+            .Grayscale16 => |data| mem.sliceAsBytes(data),
+            .Grayscale16Alpha => |data| mem.sliceAsBytes(data),
+            .Rgb24 => |data| mem.sliceAsBytes(data),
+            .Rgba32 => |data| mem.sliceAsBytes(data),
+            .Rgb565 => |data| mem.sliceAsBytes(data),
+            .Rgb555 => |data| mem.sliceAsBytes(data),
+            .Bgr24 => |data| mem.sliceAsBytes(data),
+            .Bgra32 => |data| mem.sliceAsBytes(data),
+            .Rgb48 => |data| mem.sliceAsBytes(data),
+            .Rgba64 => |data| mem.sliceAsBytes(data),
+            .Float32 => |data| mem.sliceAsBytes(data),
         };
     }
 };
@@ -271,11 +298,11 @@ pub const PixelStorageIterator = struct {
         }
 
         const result: ?Colorf32 = switch (self.pixels.*) {
-            .Bpp1 => |data| data.palette[data.indices[self.current_index]],
-            .Bpp2 => |data| data.palette[data.indices[self.current_index]],
-            .Bpp4 => |data| data.palette[data.indices[self.current_index]],
-            .Bpp8 => |data| data.palette[data.indices[self.current_index]],
-            .Bpp16 => |data| data.palette[data.indices[self.current_index]],
+            .Index1 => |data| data.palette[data.indices[self.current_index]],
+            .Index2 => |data| data.palette[data.indices[self.current_index]],
+            .Index4 => |data| data.palette[data.indices[self.current_index]],
+            .Index8 => |data| data.palette[data.indices[self.current_index]],
+            .Index16 => |data| data.palette[data.indices[self.current_index]],
             .Grayscale1 => |data| data[self.current_index].toColorf32(),
             .Grayscale2 => |data| data[self.current_index].toColorf32(),
             .Grayscale4 => |data| data[self.current_index].toColorf32(),
@@ -302,14 +329,14 @@ pub const PixelStorageIterator = struct {
 // ********************* TESTS *********************
 
 test "Indexed Pixel Storage" {
-    var storage = try PixelStorage.init(std.testing.allocator, .Bpp8, 64);
+    var storage = try PixelStorage.init(std.testing.allocator, .Index8, 64);
     defer storage.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(usize, 64), storage.len());
     try std.testing.expect(storage.isIndexed());
-    std.mem.set(u8, storage.Bpp8.indices, 0);
-    storage.Bpp8.palette[0] = Colorf32.fromU32Rgba(0);
-    storage.Bpp8.palette[1] = Colorf32.fromU32Rgba(0xffffffff);
-    storage.Bpp8.indices[0] = 1;
+    std.mem.set(u8, storage.Index8.indices, 0);
+    storage.Index8.palette[0] = Colorf32.fromU32Rgba(0);
+    storage.Index8.palette[1] = Colorf32.fromU32Rgba(0xffffffff);
+    storage.Index8.indices[0] = 1;
     var iterator = PixelStorageIterator.init(&storage);
     var cnt: u32 = 0;
     var expected = Colorf32.fromU32Rgba(0xffffffff);
