@@ -1,8 +1,13 @@
 const std = @import("std");
 const utils = @import("../../utils.zig");
+const imgio = @import("../../io.zig");
+const color = @import("../../color.zig");
+const PixelFormat = @import("../../pixel_format.zig").PixelFormat;
 const bigToNative = std.mem.bigToNative;
 const Allocator = std.mem.Allocator;
-const PixelFormat = @import("../../pixel_format.zig").PixelFormat;
+const Colorf32 = color.Colorf32;
+
+pub const ImageParsingError = error{InvalidData} || Allocator.Error || imgio.ImageReadError;
 
 pub const MagicHeader = "\x89PNG\x0D\x0A\x1A\x0A";
 
@@ -32,7 +37,6 @@ pub const FilterType = enum(u8) {
     Up = 2,
     Average = 3,
     Paeth = 4,
-    Count,
 };
 
 pub const InterlaceMethod = enum(u8) {
@@ -57,6 +61,156 @@ pub const ChunkHeader = packed struct {
     }
 };
 
+pub const ChunkProcessData = struct {
+    rawReader: imgio.ImageReader,
+    chunkLength: u32,
+    currentFormat: PixelFormat,
+    header: *const HeaderData,
+    options: *const ReaderOptions, // TODO Replace options with tmpAllocator if that is all that remains
+};
+
+pub const PaletteProcessData = struct {
+    palette: []Colorf32,
+};
+
+pub const RowProcessData = struct {
+    sourceRow: []u8,
+    sourceFormat: PixelFormat,
+    destRow: []u8,
+    destFormat: PixelFormat,
+    header: *const HeaderData,
+    options: *const ReaderOptions,
+};
+
+pub const ReaderProcessor = struct {
+    id: u32,
+    // TODO: Maybe make this work with a vtable like Allocator does it
+    context: *anyopaque,
+    chunkProcessor: ?fn (context: *anyopaque, data: *ChunkProcessData) ImageParsingError!PixelFormat,
+    paletteProcessor: ?fn (context: *anyopaque, data: *PaletteProcessData) ImageParsingError!void,
+    dataRowProcessor: ?fn (context: *anyopaque, data: *RowProcessData) ImageParsingError!PixelFormat,
+};
+
+pub const TrnsProcessor = struct {
+    const Self = @This();
+    const TRNSData = union(enum) { unset: u0, gray: u16, rgb: color.Rgb48, indexAlpha: []u8 };
+
+    trnsData: TRNSData = .{ .unset = 0 },
+    pltOrDataFound: bool = false,
+
+    pub fn processor(self: *Self) ReaderProcessor {
+        return .{
+            .id = std.mem.bytesToValue(u32, "tRNS"),
+            .context = self,
+            .chunkProcessor = processChunk,
+            .paletteProcessor = processPalette,
+            .dataRowProcessor = processDataRow,
+        };
+    }
+
+    pub fn processChunk(selfPtr: *anyopaque, data: *ChunkProcessData) ImageParsingError!PixelFormat {
+        // We will allow multiple tRNS chunks and load the last one
+        // We ignore if we encounter this chunk with colorType that already has alpha
+        var self = @ptrCast(*Self, @alignCast(@typeInfo(*Self).Pointer.alignment, selfPtr));
+        var resultFormat = data.currentFormat;
+        if (self.pltOrDataFound) {
+            _ = try data.rawReader.readNoAlloc(data.chunkLength + @sizeOf(u32)); // Skip invalid
+            return resultFormat;
+        }
+        switch (data.header.colorType) {
+            .Grayscale => {
+                if (data.chunkLength == 2 and resultFormat.isJustGrayscale()) {
+                    self.trnsData = .{ .gray = try data.rawReader.readIntBig(u16) };
+                    resultFormat = if (data.header.bitDepth == 16) .Grayscale16Alpha else .Grayscale8Alpha;
+                } else {
+                    _ = try data.rawReader.readNoAlloc(data.chunkLength); // Skip invalid
+                }
+            },
+            .Indexed => {
+                if (data.chunkLength <= data.header.maxPaletteSize() and resultFormat.isIndex()) {
+                    self.trnsData = .{ .indexAlpha = try data.options.tempAllocator.?.alloc(u8, data.chunkLength) };
+                    var filled = try data.rawReader.read(self.trnsData.indexAlpha);
+                    if (filled != self.trnsData.indexAlpha.len) return error.EndOfStream;
+                } else {
+                    _ = try data.rawReader.readNoAlloc(data.chunkLength); // Skip invalid
+                }
+            },
+            .RgbColor => {
+                if (data.chunkLength == @sizeOf(color.Rgb48) and resultFormat.isStandardRgb()) {
+                    self.trnsData = .{ .rgb = (try data.rawReader.readStruct(color.Rgb48)).* };
+                    resultFormat = if (data.header.bitDepth == 16) .Rgba64 else .Rgba32;
+                } else {
+                    _ = try data.rawReader.readNoAlloc(data.chunkLength); // Skip invalid
+                }
+            },
+            else => _ = try data.rawReader.readNoAlloc(data.chunkLength), // Skip invalid
+        }
+        // Read but ignore Crc since this is not critical chunk
+        _ = try data.rawReader.readNoAlloc(@sizeOf(u32));
+        return resultFormat;
+    }
+
+    pub fn processPalette(selfPtr: *anyopaque, data: *PaletteProcessData) ImageParsingError!void {
+        var self = @ptrCast(*Self, @alignCast(@typeInfo(*Self).Pointer.alignment, selfPtr));
+        self.pltOrDataFound = true;
+        switch (self.trnsData) {
+            .indexAlpha => |indexAlpha| {
+                for (indexAlpha) |alpha, i| {
+                    data.palette[i].a = color.toF32Color(alpha);
+                }
+            },
+            else => unreachable,
+        }
+    }
+
+    pub fn processDataRow(selfPtr: *anyopaque, data: *RowProcessData) ImageParsingError!PixelFormat {
+        var self = @ptrCast(*Self, @alignCast(@typeInfo(*Self).Pointer.alignment, selfPtr));
+        self.pltOrDataFound = true;
+        if (data.sourceFormat.isIndex()) return data.sourceFormat;
+        var pixelStride: u8 = switch (data.destFormat) {
+            .Grayscale8Alpha, .Grayscale16Alpha => 2,
+            .Rgba32, .Bgra32 => 4,
+            .Rgba64 => 8,
+            else => return data.sourceFormat,
+        };
+        var pixelPos: u32 = 0;
+        switch (self.trnsData) {
+            .gray => |grayAlpha| {
+                switch (data.sourceFormat) {
+                    .Grayscale1, .Grayscale2, .Grayscale4, .Grayscale8 => {
+                        for (data.sourceRow) |sourceByte| {
+                            var shiftCounter: i4 = @intCast(i4, 8 - @enumToInt(data.sourceFormat) & 7);
+                            while (shiftCounter >= 0) : (shiftCounter -= 1) {
+                                var shift = @intCast(u3, shiftCounter);
+                                var val = (sourceByte & (@as(u8, 1) << shift)) >> shift;
+                                data.destRow[pixelPos] = val * 255;
+                                data.destRow[pixelPos + 1] = (val ^ @truncate(u8, grayAlpha)) *| 255;
+                                pixelPos += pixelStride;
+                            }
+                        }
+                        return .Grayscale8Alpha;
+                    },
+                    .Grayscale16 => {
+                        var dest = std.mem.bytesAsSlice(u16, data.destRow);
+                        for (std.mem.bytesAsSlice(u16, data.sourceRow)) |sourceWord| {
+                            var val = sourceWord;
+                            dest[pixelPos] = val;
+                            dest[pixelPos + 1] = (val ^ grayAlpha) *| 65535;
+                            pixelPos += pixelStride;
+                        }
+                        return .Grayscale16Alpha;
+                    },
+                    .Rgb24 => {},
+                    .Rgb48 => {},
+                    else => {},
+                }
+            },
+            else => {},
+        }
+        return data.sourceFormat;
+    }
+};
+
 pub const ReaderOptions = struct {
     /// Allocator for temporary allocations. Max 500KiB will be allocated from it.
     /// If not provided Reader will use stack memory. Some temp allocations depend
@@ -75,7 +229,14 @@ pub const ReaderOptions = struct {
     // 1. decode and save tRNS chunk data => register chunk decoder
     // 2. when the result buffer needs to be allocated inform the system that it should contain the alpha channel => register customPixelFormatGetter
     // 3. After defilter process each pixel so alpha channel is added => register custom stream
+
+    processors: []ReaderProcessor = defProcessors[0..],
+
+    const Self = @This();
 };
+
+var defTrnsProcessor: TrnsProcessor = .{};
+var defProcessors = [_]ReaderProcessor{defTrnsProcessor.processor()};
 
 // Reading IDAT chunks:
 // 1. IDatReader -> zlibStream -> defilterStream -> optionalStreams -> deinterlace or just copy to dest
@@ -128,7 +289,7 @@ pub const HeaderData = packed struct {
     }
 
     pub fn maxPaletteSize(self: *const Self) u16 {
-        return if (self.bitDepth > 8) 256 else 1 << self.bitDepth;
+        return if (self.bitDepth > 8) 256 else @as(u16, 1) << @truncate(u4, self.bitDepth);
     }
 
     /// What will be the color type of resulting image with the given options
@@ -161,7 +322,7 @@ pub const HeaderData = packed struct {
     }
 
     pub fn pixelBits(self: *const Self) u8 {
-        self.bitDepth * self.channelCount();
+        return self.bitDepth * self.channelCount();
     }
 
     pub fn destPixelBitSize(self: *const Self, options: *const ReaderOptions) u8 {
@@ -179,29 +340,34 @@ pub const HeaderData = packed struct {
     pub fn getPixelFormat(self: *const Self) PixelFormat {
         return switch (self.colorType) {
             .Grayscale => switch (self.bitDepth) {
-                1 => .Grayscale1,
-                2 => .Grayscale2,
-                4 => .Grayscale4,
-                8 => .Grayscale8,
-                16 => .Grayscale16,
+                1 => PixelFormat.Grayscale1,
+                2 => PixelFormat.Grayscale2,
+                4 => PixelFormat.Grayscale4,
+                8 => PixelFormat.Grayscale8,
+                16 => PixelFormat.Grayscale16,
+                else => unreachable,
             },
             .RgbColor => switch (self.bitDepth) {
-                8 => .Rgb24,
-                16 => .Rgb48,
+                8 => PixelFormat.Rgb24,
+                16 => PixelFormat.Rgb48,
+                else => unreachable,
             },
             .Indexed => switch (self.bitDepth) {
-                1 => .Bpp1,
-                2 => .Bpp2,
-                4 => .Bpp4,
-                8 => .Bpp8,
+                1 => PixelFormat.Index1,
+                2 => PixelFormat.Index2,
+                4 => PixelFormat.Index4,
+                8 => PixelFormat.Index8,
+                else => unreachable,
             },
             .GrayscaleAlpha => switch (self.bitDepth) {
-                8 => .Grayscale8Alpha,
-                16 => .Grayscale16Alpha,
+                8 => PixelFormat.Grayscale8Alpha,
+                16 => PixelFormat.Grayscale16Alpha,
+                else => unreachable,
             },
             .RgbaColor => switch (self.bitDepth) {
-                8 => .Rgba32,
-                16 => .Rgba64,
+                8 => PixelFormat.Rgba32,
+                16 => PixelFormat.Rgba64,
+                else => unreachable,
             },
         };
     }

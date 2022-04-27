@@ -7,4 +7,9 @@ pub const pngReader = @import("src/formats/png/reader.zig");
 test {
     const std = @import("std");
     std.testing.refAllDecls(@This());
+    var tstFile = std.fs.cwd().openFile("ShouldNotExist.img", .{}) catch null;
+    if (tstFile) |file| {
+        var reader = pngReader.fromFile(file);
+        _ = try reader.load(std.testing.allocator, .{});
+    }
 }
