@@ -25,14 +25,14 @@ pub fn IndexedStorage(comptime T: type) type {
         palette: []Colorf32,
         indices: []T,
 
-        pub const PaletteSize = 1 << @bitSizeOf(T);
+        pub const palette_size = 1 << @bitSizeOf(T);
 
         const Self = @This();
 
         pub fn init(allocator: Allocator, pixel_count: usize) !Self {
             return Self{
                 .indices = try allocator.alloc(T, pixel_count),
-                .palette = try allocator.alloc(Colorf32, PaletteSize),
+                .palette = try allocator.alloc(Colorf32, palette_size),
             };
         }
 
@@ -50,135 +50,135 @@ pub const IndexedStorage8 = IndexedStorage(u8);
 pub const IndexedStorage16 = IndexedStorage(u16);
 
 pub const PixelStorage = union(PixelFormat) {
-    Index1: IndexedStorage1,
-    Index2: IndexedStorage2,
-    Index4: IndexedStorage4,
-    Index8: IndexedStorage8,
-    Index16: IndexedStorage16,
-    Grayscale1: []Grayscale1,
-    Grayscale2: []Grayscale2,
-    Grayscale4: []Grayscale4,
-    Grayscale8: []Grayscale8,
-    Grayscale8Alpha: []Grayscale8Alpha,
-    Grayscale16: []Grayscale16,
-    Grayscale16Alpha: []Grayscale16Alpha,
-    Rgb24: []Rgb24,
-    Rgba32: []Rgba32,
-    Rgb565: []Rgb565,
-    Rgb555: []Rgb555,
-    Bgr24: []Bgr24,
-    Bgra32: []Bgra32,
-    Rgb48: []Rgb48,
-    Rgba64: []Rgba64,
-    Float32: []Colorf32,
+    index1: IndexedStorage1,
+    index2: IndexedStorage2,
+    index4: IndexedStorage4,
+    index8: IndexedStorage8,
+    index16: IndexedStorage16,
+    grayscale1: []Grayscale1,
+    grayscale2: []Grayscale2,
+    grayscale4: []Grayscale4,
+    grayscale8: []Grayscale8,
+    grayscale8Alpha: []Grayscale8Alpha,
+    grayscale16: []Grayscale16,
+    grayscale16Alpha: []Grayscale16Alpha,
+    rgb24: []Rgb24,
+    rgba32: []Rgba32,
+    rgb565: []Rgb565,
+    rgb555: []Rgb555,
+    bgr24: []Bgr24,
+    bgra32: []Bgra32,
+    rgb48: []Rgb48,
+    rgba64: []Rgba64,
+    float32: []Colorf32,
 
     const Self = @This();
 
     pub fn init(allocator: Allocator, format: PixelFormat, pixel_count: usize) !Self {
         return switch (format) {
-            .Index1 => {
+            .index1 => {
                 return Self{
-                    .Index1 = try IndexedStorage(u1).init(allocator, pixel_count),
+                    .index1 = try IndexedStorage(u1).init(allocator, pixel_count),
                 };
             },
-            .Index2 => {
+            .index2 => {
                 return Self{
-                    .Index2 = try IndexedStorage(u2).init(allocator, pixel_count),
+                    .index2 = try IndexedStorage(u2).init(allocator, pixel_count),
                 };
             },
-            .Index4 => {
+            .index4 => {
                 return Self{
-                    .Index4 = try IndexedStorage(u4).init(allocator, pixel_count),
+                    .index4 = try IndexedStorage(u4).init(allocator, pixel_count),
                 };
             },
-            .Index8 => {
+            .index8 => {
                 return Self{
-                    .Index8 = try IndexedStorage(u8).init(allocator, pixel_count),
+                    .index8 = try IndexedStorage(u8).init(allocator, pixel_count),
                 };
             },
-            .Index16 => {
+            .index16 => {
                 return Self{
-                    .Index16 = try IndexedStorage(u16).init(allocator, pixel_count),
+                    .index16 = try IndexedStorage(u16).init(allocator, pixel_count),
                 };
             },
-            .Grayscale1 => {
+            .grayscale1 => {
                 return Self{
-                    .Grayscale1 = try allocator.alloc(Grayscale1, pixel_count),
+                    .grayscale1 = try allocator.alloc(Grayscale1, pixel_count),
                 };
             },
-            .Grayscale2 => {
+            .grayscale2 => {
                 return Self{
-                    .Grayscale2 = try allocator.alloc(Grayscale2, pixel_count),
+                    .grayscale2 = try allocator.alloc(Grayscale2, pixel_count),
                 };
             },
-            .Grayscale4 => {
+            .grayscale4 => {
                 return Self{
-                    .Grayscale4 = try allocator.alloc(Grayscale4, pixel_count),
+                    .grayscale4 = try allocator.alloc(Grayscale4, pixel_count),
                 };
             },
-            .Grayscale8 => {
+            .grayscale8 => {
                 return Self{
-                    .Grayscale8 = try allocator.alloc(Grayscale8, pixel_count),
+                    .grayscale8 = try allocator.alloc(Grayscale8, pixel_count),
                 };
             },
-            .Grayscale8Alpha => {
+            .grayscale8Alpha => {
                 return Self{
-                    .Grayscale8Alpha = try allocator.alloc(Grayscale8Alpha, pixel_count),
+                    .grayscale8Alpha = try allocator.alloc(Grayscale8Alpha, pixel_count),
                 };
             },
-            .Grayscale16 => {
+            .grayscale16 => {
                 return Self{
-                    .Grayscale16 = try allocator.alloc(Grayscale16, pixel_count),
+                    .grayscale16 = try allocator.alloc(Grayscale16, pixel_count),
                 };
             },
-            .Grayscale16Alpha => {
+            .grayscale16Alpha => {
                 return Self{
-                    .Grayscale16Alpha = try allocator.alloc(Grayscale16Alpha, pixel_count),
+                    .grayscale16Alpha = try allocator.alloc(Grayscale16Alpha, pixel_count),
                 };
             },
-            .Rgb24 => {
+            .rgb24 => {
                 return Self{
-                    .Rgb24 = try allocator.alloc(Rgb24, pixel_count),
+                    .rgb24 = try allocator.alloc(Rgb24, pixel_count),
                 };
             },
-            .Rgba32 => {
+            .rgba32 => {
                 return Self{
-                    .Rgba32 = try allocator.alloc(Rgba32, pixel_count),
+                    .rgba32 = try allocator.alloc(Rgba32, pixel_count),
                 };
             },
-            .Rgb565 => {
+            .rgb565 => {
                 return Self{
-                    .Rgb565 = try allocator.alloc(Rgb565, pixel_count),
+                    .rgb565 = try allocator.alloc(Rgb565, pixel_count),
                 };
             },
-            .Rgb555 => {
+            .rgb555 => {
                 return Self{
-                    .Rgb555 = try allocator.alloc(Rgb555, pixel_count),
+                    .rgb555 = try allocator.alloc(Rgb555, pixel_count),
                 };
             },
-            .Bgr24 => {
+            .bgr24 => {
                 return Self{
-                    .Bgr24 = try allocator.alloc(Bgr24, pixel_count),
+                    .bgr24 = try allocator.alloc(Bgr24, pixel_count),
                 };
             },
-            .Bgra32 => {
+            .bgra32 => {
                 return Self{
-                    .Bgra32 = try allocator.alloc(Bgra32, pixel_count),
+                    .bgra32 = try allocator.alloc(Bgra32, pixel_count),
                 };
             },
-            .Rgb48 => {
+            .rgb48 => {
                 return Self{
-                    .Rgb48 = try allocator.alloc(Rgb48, pixel_count),
+                    .rgb48 = try allocator.alloc(Rgb48, pixel_count),
                 };
             },
-            .Rgba64 => {
+            .rgba64 => {
                 return Self{
-                    .Rgba64 = try allocator.alloc(Rgba64, pixel_count),
+                    .rgba64 = try allocator.alloc(Rgba64, pixel_count),
                 };
             },
-            .Float32 => {
+            .float32 => {
                 return Self{
-                    .Float32 = try allocator.alloc(Colorf32, pixel_count),
+                    .float32 = try allocator.alloc(Colorf32, pixel_count),
                 };
             },
         };
@@ -186,90 +186,101 @@ pub const PixelStorage = union(PixelFormat) {
 
     pub fn deinit(self: Self, allocator: Allocator) void {
         switch (self) {
-            .Index1 => |data| data.deinit(allocator),
-            .Index2 => |data| data.deinit(allocator),
-            .Index4 => |data| data.deinit(allocator),
-            .Index8 => |data| data.deinit(allocator),
-            .Index16 => |data| data.deinit(allocator),
-            .Grayscale1 => |data| allocator.free(data),
-            .Grayscale2 => |data| allocator.free(data),
-            .Grayscale4 => |data| allocator.free(data),
-            .Grayscale8 => |data| allocator.free(data),
-            .Grayscale8Alpha => |data| allocator.free(data),
-            .Grayscale16 => |data| allocator.free(data),
-            .Grayscale16Alpha => |data| allocator.free(data),
-            .Rgb24 => |data| allocator.free(data),
-            .Rgba32 => |data| allocator.free(data),
-            .Rgb565 => |data| allocator.free(data),
-            .Rgb555 => |data| allocator.free(data),
-            .Bgr24 => |data| allocator.free(data),
-            .Bgra32 => |data| allocator.free(data),
-            .Rgb48 => |data| allocator.free(data),
-            .Rgba64 => |data| allocator.free(data),
-            .Float32 => |data| allocator.free(data),
+            .index1 => |data| data.deinit(allocator),
+            .index2 => |data| data.deinit(allocator),
+            .index4 => |data| data.deinit(allocator),
+            .index8 => |data| data.deinit(allocator),
+            .index16 => |data| data.deinit(allocator),
+            .grayscale1 => |data| allocator.free(data),
+            .grayscale2 => |data| allocator.free(data),
+            .grayscale4 => |data| allocator.free(data),
+            .grayscale8 => |data| allocator.free(data),
+            .grayscale8Alpha => |data| allocator.free(data),
+            .grayscale16 => |data| allocator.free(data),
+            .grayscale16Alpha => |data| allocator.free(data),
+            .rgb24 => |data| allocator.free(data),
+            .rgba32 => |data| allocator.free(data),
+            .rgb565 => |data| allocator.free(data),
+            .rgb555 => |data| allocator.free(data),
+            .bgr24 => |data| allocator.free(data),
+            .bgra32 => |data| allocator.free(data),
+            .rgb48 => |data| allocator.free(data),
+            .rgba64 => |data| allocator.free(data),
+            .float32 => |data| allocator.free(data),
         }
     }
 
     pub fn len(self: Self) usize {
         return switch (self) {
-            .Index1 => |data| data.indices.len,
-            .Index2 => |data| data.indices.len,
-            .Index4 => |data| data.indices.len,
-            .Index8 => |data| data.indices.len,
-            .Index16 => |data| data.indices.len,
-            .Grayscale1 => |data| data.len,
-            .Grayscale2 => |data| data.len,
-            .Grayscale4 => |data| data.len,
-            .Grayscale8 => |data| data.len,
-            .Grayscale8Alpha => |data| data.len,
-            .Grayscale16 => |data| data.len,
-            .Grayscale16Alpha => |data| data.len,
-            .Rgb24 => |data| data.len,
-            .Rgba32 => |data| data.len,
-            .Rgb565 => |data| data.len,
-            .Rgb555 => |data| data.len,
-            .Bgr24 => |data| data.len,
-            .Bgra32 => |data| data.len,
-            .Rgb48 => |data| data.len,
-            .Rgba64 => |data| data.len,
-            .Float32 => |data| data.len,
+            .index1 => |data| data.indices.len,
+            .index2 => |data| data.indices.len,
+            .index4 => |data| data.indices.len,
+            .index8 => |data| data.indices.len,
+            .index16 => |data| data.indices.len,
+            .grayscale1 => |data| data.len,
+            .grayscale2 => |data| data.len,
+            .grayscale4 => |data| data.len,
+            .grayscale8 => |data| data.len,
+            .grayscale8Alpha => |data| data.len,
+            .grayscale16 => |data| data.len,
+            .grayscale16Alpha => |data| data.len,
+            .rgb24 => |data| data.len,
+            .rgba32 => |data| data.len,
+            .rgb565 => |data| data.len,
+            .rgb555 => |data| data.len,
+            .bgr24 => |data| data.len,
+            .bgra32 => |data| data.len,
+            .rgb48 => |data| data.len,
+            .rgba64 => |data| data.len,
+            .float32 => |data| data.len,
         };
     }
 
     pub fn isIndexed(self: Self) bool {
         return switch (self) {
-            .Index1 => true,
-            .Index2 => true,
-            .Index4 => true,
-            .Index8 => true,
-            .Index16 => true,
+            .index1 => true,
+            .index2 => true,
+            .index4 => true,
+            .index8 => true,
+            .index16 => true,
             else => false,
+        };
+    }
+
+    pub fn getPallete(self: Self) ?[]Colorf32 {
+        return switch (self) {
+            .index1 => |data| data.palette,
+            .index2 => |data| data.palette,
+            .index4 => |data| data.palette,
+            .index8 => |data| data.palette,
+            .index16 => |data| data.palette,
+            else => null,
         };
     }
 
     pub fn pixelsAsBytes(self: Self) []u8 {
         return switch (self) {
-            .Index1 => |data| mem.sliceAsBytes(data.indices),
-            .Index2 => |data| mem.sliceAsBytes(data.indices),
-            .Index4 => |data| mem.sliceAsBytes(data.indices),
-            .Index8 => |data| mem.sliceAsBytes(data.indices),
-            .Index16 => |data| mem.sliceAsBytes(data.indices),
-            .Grayscale1 => |data| mem.sliceAsBytes(data),
-            .Grayscale2 => |data| mem.sliceAsBytes(data),
-            .Grayscale4 => |data| mem.sliceAsBytes(data),
-            .Grayscale8 => |data| mem.sliceAsBytes(data),
-            .Grayscale8Alpha => |data| mem.sliceAsBytes(data),
-            .Grayscale16 => |data| mem.sliceAsBytes(data),
-            .Grayscale16Alpha => |data| mem.sliceAsBytes(data),
-            .Rgb24 => |data| mem.sliceAsBytes(data),
-            .Rgba32 => |data| mem.sliceAsBytes(data),
-            .Rgb565 => |data| mem.sliceAsBytes(data),
-            .Rgb555 => |data| mem.sliceAsBytes(data),
-            .Bgr24 => |data| mem.sliceAsBytes(data),
-            .Bgra32 => |data| mem.sliceAsBytes(data),
-            .Rgb48 => |data| mem.sliceAsBytes(data),
-            .Rgba64 => |data| mem.sliceAsBytes(data),
-            .Float32 => |data| mem.sliceAsBytes(data),
+            .index1 => |data| mem.sliceAsBytes(data.indices),
+            .index2 => |data| mem.sliceAsBytes(data.indices),
+            .index4 => |data| mem.sliceAsBytes(data.indices),
+            .index8 => |data| mem.sliceAsBytes(data.indices),
+            .index16 => |data| mem.sliceAsBytes(data.indices),
+            .grayscale1 => |data| mem.sliceAsBytes(data),
+            .grayscale2 => |data| mem.sliceAsBytes(data),
+            .grayscale4 => |data| mem.sliceAsBytes(data),
+            .grayscale8 => |data| mem.sliceAsBytes(data),
+            .grayscale8Alpha => |data| mem.sliceAsBytes(data),
+            .grayscale16 => |data| mem.sliceAsBytes(data),
+            .grayscale16Alpha => |data| mem.sliceAsBytes(data),
+            .rgb24 => |data| mem.sliceAsBytes(data),
+            .rgba32 => |data| mem.sliceAsBytes(data),
+            .rgb565 => |data| mem.sliceAsBytes(data),
+            .rgb555 => |data| mem.sliceAsBytes(data),
+            .bgr24 => |data| mem.sliceAsBytes(data),
+            .bgra32 => |data| mem.sliceAsBytes(data),
+            .rgb48 => |data| mem.sliceAsBytes(data),
+            .rgba64 => |data| mem.sliceAsBytes(data),
+            .float32 => |data| mem.sliceAsBytes(data),
         };
     }
 };
@@ -298,27 +309,27 @@ pub const PixelStorageIterator = struct {
         }
 
         const result: ?Colorf32 = switch (self.pixels.*) {
-            .Index1 => |data| data.palette[data.indices[self.current_index]],
-            .Index2 => |data| data.palette[data.indices[self.current_index]],
-            .Index4 => |data| data.palette[data.indices[self.current_index]],
-            .Index8 => |data| data.palette[data.indices[self.current_index]],
-            .Index16 => |data| data.palette[data.indices[self.current_index]],
-            .Grayscale1 => |data| data[self.current_index].toColorf32(),
-            .Grayscale2 => |data| data[self.current_index].toColorf32(),
-            .Grayscale4 => |data| data[self.current_index].toColorf32(),
-            .Grayscale8 => |data| data[self.current_index].toColorf32(),
-            .Grayscale8Alpha => |data| data[self.current_index].toColorf32(),
-            .Grayscale16 => |data| data[self.current_index].toColorf32(),
-            .Grayscale16Alpha => |data| data[self.current_index].toColorf32(),
-            .Rgb24 => |data| data[self.current_index].toColorf32(),
-            .Rgba32 => |data| data[self.current_index].toColorf32(),
-            .Rgb565 => |data| data[self.current_index].toColorf32(),
-            .Rgb555 => |data| data[self.current_index].toColorf32(),
-            .Bgr24 => |data| data[self.current_index].toColorf32(),
-            .Bgra32 => |data| data[self.current_index].toColorf32(),
-            .Rgb48 => |data| data[self.current_index].toColorf32(),
-            .Rgba64 => |data| data[self.current_index].toColorf32(),
-            .Float32 => |data| data[self.current_index],
+            .index1 => |data| data.palette[data.indices[self.current_index]],
+            .index2 => |data| data.palette[data.indices[self.current_index]],
+            .index4 => |data| data.palette[data.indices[self.current_index]],
+            .index8 => |data| data.palette[data.indices[self.current_index]],
+            .index16 => |data| data.palette[data.indices[self.current_index]],
+            .grayscale1 => |data| data[self.current_index].toColorf32(),
+            .grayscale2 => |data| data[self.current_index].toColorf32(),
+            .grayscale4 => |data| data[self.current_index].toColorf32(),
+            .grayscale8 => |data| data[self.current_index].toColorf32(),
+            .grayscale8Alpha => |data| data[self.current_index].toColorf32(),
+            .grayscale16 => |data| data[self.current_index].toColorf32(),
+            .grayscale16Alpha => |data| data[self.current_index].toColorf32(),
+            .rgb24 => |data| data[self.current_index].toColorf32(),
+            .rgba32 => |data| data[self.current_index].toColorf32(),
+            .rgb565 => |data| data[self.current_index].toColorf32(),
+            .rgb555 => |data| data[self.current_index].toColorf32(),
+            .bgr24 => |data| data[self.current_index].toColorf32(),
+            .bgra32 => |data| data[self.current_index].toColorf32(),
+            .rgb48 => |data| data[self.current_index].toColorf32(),
+            .rgba64 => |data| data[self.current_index].toColorf32(),
+            .float32 => |data| data[self.current_index],
         };
 
         self.current_index += 1;
@@ -329,14 +340,14 @@ pub const PixelStorageIterator = struct {
 // ********************* TESTS *********************
 
 test "Indexed Pixel Storage" {
-    var storage = try PixelStorage.init(std.testing.allocator, .Index8, 64);
+    var storage = try PixelStorage.init(std.testing.allocator, .index8, 64);
     defer storage.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(usize, 64), storage.len());
     try std.testing.expect(storage.isIndexed());
-    std.mem.set(u8, storage.Index8.indices, 0);
-    storage.Index8.palette[0] = Colorf32.fromU32Rgba(0);
-    storage.Index8.palette[1] = Colorf32.fromU32Rgba(0xffffffff);
-    storage.Index8.indices[0] = 1;
+    std.mem.set(u8, storage.index8.indices, 0);
+    storage.index8.palette[0] = Colorf32.fromU32Rgba(0);
+    storage.index8.palette[1] = Colorf32.fromU32Rgba(0xffffffff);
+    storage.index8.indices[0] = 1;
     var iterator = PixelStorageIterator.init(&storage);
     var cnt: u32 = 0;
     var expected = Colorf32.fromU32Rgba(0xffffffff);
@@ -349,13 +360,13 @@ test "Indexed Pixel Storage" {
 }
 
 test "RGBA Pixel Storage" {
-    var storage = try PixelStorage.init(std.testing.allocator, .Rgba32, 64);
+    var storage = try PixelStorage.init(std.testing.allocator, .rgba32, 64);
     defer storage.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(usize, 64), storage.len());
     try std.testing.expect(!storage.isIndexed());
-    std.mem.set(Rgba32, storage.Rgba32, Rgba32.fromValue(0));
+    std.mem.set(Rgba32, storage.rgba32, Rgba32.fromValue(0));
     var iterator = PixelStorageIterator.init(&storage);
-    storage.Rgba32.ptr[0] = Rgba32.fromValue(0xffffffff);
+    storage.rgba32.ptr[0] = Rgba32.fromValue(0xffffffff);
     var cnt: u32 = 0;
     var expected = Colorf32.fromU32Rgba(0xffffffff);
     while (iterator.next()) |item| {

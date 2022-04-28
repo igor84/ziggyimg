@@ -20,9 +20,9 @@ pub const ImageReader = union(enum) {
         return Self{ .buffer = BufferReader.init(buffer) };
     }
 
-    pub fn wrap(fileOrBuffer: anytype) Self {
-        if (@TypeOf(fileOrBuffer) == FileReader) return .{ .file = fileOrBuffer };
-        if (@TypeOf(fileOrBuffer) == BufferReader) return .{ .buffer = fileOrBuffer };
+    pub fn wrap(file_or_buffer: anytype) Self {
+        if (@TypeOf(file_or_buffer) == FileReader) return .{ .file = file_or_buffer };
+        if (@TypeOf(file_or_buffer) == BufferReader) return .{ .buffer = file_or_buffer };
         @compileError("ImageReader can only wrap FileReader and BufferReader");
     }
 
@@ -123,8 +123,8 @@ pub const BufferReader = struct {
         const size = @sizeOf(T);
         comptime assert(bitSize % 8 == 0 and bitSize / 8 == size); // This will not allow u24 as intended
         var result: T = undefined;
-        var readSize = try self.read(mem.asBytes(&result));
-        if (readSize != size) return error.EndOfStream;
+        var read_size = try self.read(mem.asBytes(&result));
+        if (read_size != size) return error.EndOfStream;
         return result;
     }
 
@@ -138,17 +138,17 @@ pub const BufferReader = struct {
 
     pub fn seekBy(self: *Self, amt: i64) ImageReadError!void {
         if (amt < 0) {
-            const absAmt = std.math.absCast(amt);
-            const absAmtUsize = std.math.cast(usize, absAmt) catch std.math.maxInt(usize);
-            if (absAmtUsize > self.pos) {
+            const abs_amt = std.math.absCast(amt);
+            const abs_amt_usize = std.math.cast(usize, abs_amt) catch std.math.maxInt(usize);
+            if (abs_amt_usize > self.pos) {
                 self.pos = 0;
             } else {
-                self.pos -= absAmtUsize;
+                self.pos -= abs_amt_usize;
             }
         } else {
-            const amtUsize = std.math.cast(usize, amt) catch std.math.maxInt(usize);
-            const newPos = self.pos +| amtUsize;
-            self.pos = std.math.min(self.buffer.len, newPos);
+            const amt_usize = std.math.cast(usize, amt) catch std.math.maxInt(usize);
+            const new_pos = self.pos +| amt_usize;
+            self.pos = std.math.min(self.buffer.len, new_pos);
         }
     }
 
@@ -176,9 +176,9 @@ pub const FileReader = struct {
         var available = self.end - self.pos;
         if (available < size) {
             mem.copy(u8, self.buffer[0..available], self.buffer[self.pos..self.end]);
-            var readSize = try self.file.read(self.buffer[available..]);
+            var read_size = try self.file.read(self.buffer[available..]);
             self.pos = 0;
-            available += readSize;
+            available += read_size;
             self.end = available;
         }
         if (available < size) return error.EndOfStream;
@@ -216,12 +216,12 @@ pub const FileReader = struct {
 
     pub fn readInt(self: *Self, comptime T: type) ImageReadError!T {
         comptime assert(@typeInfo(T) == .Int);
-        const bitSize = @bitSizeOf(T);
+        const bit_size = @bitSizeOf(T);
         const size = @sizeOf(T);
-        comptime assert(bitSize % 8 == 0 and bitSize / 8 == size); // This will not allow u24 as intended
+        comptime assert(bit_size % 8 == 0 and bit_size / 8 == size); // This will not allow u24 as intended
         var result: T = undefined;
-        var readSize = try self.read(mem.asBytes(&result));
-        if (readSize != size) return error.EndOfStream;
+        var read_size = try self.read(mem.asBytes(&result));
+        if (read_size != size) return error.EndOfStream;
         return result;
     }
 
@@ -235,14 +235,14 @@ pub const FileReader = struct {
 
     pub fn seekBy(self: *Self, amt: i64) ImageReadError!void {
         if (amt < 0) {
-            const absAmt = std.math.absCast(amt);
-            const absAmtUsize = std.math.cast(usize, absAmt) catch std.math.maxInt(usize);
-            self.pos -|= absAmtUsize;
+            const abs_amt = std.math.absCast(amt);
+            const abs_amt_usize = std.math.cast(usize, abs_amt) catch std.math.maxInt(usize);
+            self.pos -|= abs_amt_usize;
         } else {
-            const amtUsize = std.math.cast(usize, amt) catch std.math.maxInt(usize);
-            const newPos = self.pos +| amtUsize;
-            if (newPos > self.end) return error.SeekError;
-            self.pos = newPos;
+            const amt_usize = std.math.cast(usize, amt) catch std.math.maxInt(usize);
+            const new_pos = self.pos +| amt_usize;
+            if (new_pos > self.end) return error.SeekError;
+            self.pos = new_pos;
         }
     }
 
@@ -287,8 +287,8 @@ fn testReader(reader: *ImageReader) !void {
 
     var i: u32 = 0;
     while (i < 2) : (i += 1) {
-        var readBytes = try reader.read(buf[0..]);
-        try std.testing.expectEqual(@as(usize, 8), readBytes);
+        var read_bytes = try reader.read(buf[0..]);
+        try std.testing.expectEqual(@as(usize, 8), read_bytes);
         try std.testing.expectEqualSlices(u8, "pqr01234", buf[0..8]);
         var int = try reader.readIntBig(u32);
         try std.testing.expectEqual(@as(u32, 0x35363738), int);

@@ -23,10 +23,10 @@ pub const RGBColorSpace = struct {
     blue: xyY,
 
     /// RGB to XYZ conversion matrix.
-    rgbToXyz: Mat,
+    rgb_to_xyz: Mat,
 
     /// XYZ to RGB conversion matrix.
-    xyzToRgb: Mat,
+    xyz_to_rgb: Mat,
 
     const Self = @This();
 
@@ -50,9 +50,9 @@ pub const RGBColorSpace = struct {
             @compileError("Got unsupported value for gamma parameter");
         }
 
-        var rgbToXyz = rgbToXyzMatrix(red, green, blue, white);
-        //var xyzToRgb = zmath.inverse(rgbToXyz);
-        var xyzToRgb = rgbToXyz;
+        var rgb_to_xyz = rgbToXyzMatrix(red, green, blue, white);
+        //var xyz_to_rgb = zmath.inverse(rgb_to_xyz);
+        var xyz_to_rgb = rgb_to_xyz;
 
         var self = Self{
             .id = id,
@@ -62,8 +62,8 @@ pub const RGBColorSpace = struct {
             .red = red,
             .green = green,
             .blue = blue,
-            .rgbToXyz = rgbToXyz,
-            .xyzToRgb = xyzToRgb,
+            .rgb_to_xyz = rgb_to_xyz,
+            .xyz_to_rgb = xyz_to_rgb,
         };
 
         return self;
@@ -79,14 +79,14 @@ fn linearToGamma(comptime gamma: comptime_float) fn (f32) f32 {
 }
 
 fn linearToHybridGamma(
-    comptime breakPoint: comptime_float,
-    comptime linearFactor: comptime_float,
+    comptime breakpoint: comptime_float,
+    comptime linear_factor: comptime_float,
     comptime fac: comptime_float,
     comptime exp: comptime_float,
 ) fn (f32) f32 {
     return struct {
         fn impl(v: f32) f32 {
-            if (v <= breakPoint) return v * linearFactor;
+            if (v <= breakpoint) return v * linear_factor;
             return fac * std.math.pow(f32, v, exp) - fac + 1;
         }
     }.impl;
@@ -101,14 +101,14 @@ fn gammaToLinear(comptime gamma: comptime_float) fn (f32) f32 {
 }
 
 fn hybridGammaToLinear(
-    comptime breakPoint: comptime_float,
-    comptime linearFactor: comptime_float,
+    comptime breakpoint: comptime_float,
+    comptime linear_factor: comptime_float,
     comptime fac: comptime_float,
     comptime exp: comptime_float,
 ) fn (f32) f32 {
     return struct {
         fn impl(v: f32) f32 {
-            if (v <= breakPoint * linearFactor) return v / linearFactor;
+            if (v <= breakpoint * linear_factor) return v / linear_factor;
             return std.math.pow(f32, (v + fac - 1) / fac, exp);
         }
     }.impl;
@@ -234,7 +234,7 @@ test "sRGBToLinear" {
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), sRGB.toLinear(255 / 255.0), epsilon);
 }
 
-test "LinearTosRGB" {
+test "linearToSRGB" {
     const epsilon = 0.000001;
     try std.testing.expectEqual(@as(f32, 0), sRGB.toGamma(sRGB.toLinear(0)));
     try std.testing.expectApproxEqAbs(@as(f32, 1 / 255.0), sRGB.toGamma(sRGB.toLinear(1 / 255.0)), epsilon);

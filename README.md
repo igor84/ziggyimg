@@ -21,9 +21,9 @@ zig build test
 ```
 
 ## TODO
-- [ ] Fixed styiling to match zig recommendations
 - [ ] Add Png Test suite
 - [ ] Implement RGB deinterlacing
 - [ ] Implement RGB processor that converts palette to rgb
+- [ ] Execute performance tests
 - [ ] Add named colors
 - [ ] Provide fast way for most often needed sRGB to Linear and Linear to sRGB conversion

@@ -231,10 +231,8 @@ fn RgbColor(comptime ComponentType: type) type {
         g: ComponentType,
         b: ComponentType,
 
-        const compBits = @typeInfo(ComponentType).Int.bits;
-        const UintType = std.meta.Int(.unsigned, compBits * 3);
-        const wholeByteBits = math.max(compBits, 8);
-        const WholeByteType = std.meta.Int(.unsigned, wholeByteBits);
+        const comp_bits = @typeInfo(ComponentType).Int.bits;
+        const UintType = std.meta.Int(.unsigned, comp_bits * 3);
 
         const Self = @This();
 
@@ -247,15 +245,15 @@ fn RgbColor(comptime ComponentType: type) type {
         }
 
         pub inline fn getValue(self: Self) UintType {
-            return @as(UintType, self.r) << (compBits * 2) |
-                @as(UintType, self.g) << compBits |
+            return @as(UintType, self.r) << (comp_bits * 2) |
+                @as(UintType, self.g) << comp_bits |
                 @as(UintType, self.b);
         }
 
         pub inline fn fromValue(value: UintType) Self {
             return Self{
-                .r = @truncate(ComponentType, value >> (compBits * 2)),
-                .g = @truncate(ComponentType, value >> compBits),
+                .r = @truncate(ComponentType, value >> (comp_bits * 2)),
+                .g = @truncate(ComponentType, value >> comp_bits),
                 .b = @truncate(ComponentType, value),
             };
         }
@@ -303,8 +301,8 @@ fn RgbaColor(comptime ComponentType: type) type {
         b: ComponentType,
         a: ComponentType,
 
-        const compBits = @typeInfo(ComponentType).Int.bits;
-        const UintType = std.meta.Int(.unsigned, compBits * 4);
+        const comp_bits = @typeInfo(ComponentType).Int.bits;
+        const UintType = std.meta.Int(.unsigned, comp_bits * 4);
 
         const Self = @This();
 
@@ -327,17 +325,17 @@ fn RgbaColor(comptime ComponentType: type) type {
         }
 
         pub inline fn getValue(self: Self) UintType {
-            return @as(UintType, self.r) << (compBits * 3) |
-                @as(UintType, self.g) << (compBits * 2) |
-                @as(UintType, self.b) << compBits |
+            return @as(UintType, self.r) << (comp_bits * 3) |
+                @as(UintType, self.g) << (comp_bits * 2) |
+                @as(UintType, self.b) << comp_bits |
                 @as(UintType, self.a);
         }
 
         pub inline fn fromValue(value: UintType) Self {
             return Self{
-                .r = @truncate(ComponentType, value >> (compBits * 3)),
-                .g = @truncate(ComponentType, value >> (compBits * 2)),
-                .b = @truncate(ComponentType, value >> compBits),
+                .r = @truncate(ComponentType, value >> (comp_bits * 3)),
+                .g = @truncate(ComponentType, value >> (comp_bits * 2)),
+                .b = @truncate(ComponentType, value >> comp_bits),
                 .a = @truncate(ComponentType, value),
             };
         }
@@ -389,8 +387,8 @@ fn BgrColor(comptime ComponentType: type) type {
         g: ComponentType,
         r: ComponentType,
 
-        const compBits = @typeInfo(ComponentType).Int.bits;
-        const UintType = std.meta.Int(.unsigned, compBits * 3);
+        const comp_bits = @typeInfo(ComponentType).Int.bits;
+        const UintType = std.meta.Int(.unsigned, comp_bits * 3);
 
         const Self = @This();
 
@@ -403,15 +401,15 @@ fn BgrColor(comptime ComponentType: type) type {
         }
 
         pub inline fn getValue(self: Self) UintType {
-            return @as(UintType, self.r) << (compBits * 2) |
-                @as(UintType, self.g) << compBits |
+            return @as(UintType, self.r) << (comp_bits * 2) |
+                @as(UintType, self.g) << comp_bits |
                 @as(UintType, self.b);
         }
 
         pub inline fn fromValue(value: UintType) Self {
             return Self{
-                .r = @truncate(ComponentType, value >> (compBits * 2)),
-                .g = @truncate(ComponentType, value >> compBits),
+                .r = @truncate(ComponentType, value >> (comp_bits * 2)),
+                .g = @truncate(ComponentType, value >> comp_bits),
                 .b = @truncate(ComponentType, value),
             };
         }
@@ -434,8 +432,8 @@ fn BgraColor(comptime ComponentType: type) type {
         r: ComponentType,
         a: ComponentType,
 
-        const compBits = @typeInfo(ComponentType).Int.bits;
-        const UintType = std.meta.Int(.unsigned, compBits * 4);
+        const comp_bits = @typeInfo(ComponentType).Int.bits;
+        const UintType = std.meta.Int(.unsigned, comp_bits * 4);
 
         const Self = @This();
 
@@ -458,17 +456,17 @@ fn BgraColor(comptime ComponentType: type) type {
         }
 
         pub inline fn getValue(self: Self) UintType {
-            return @as(UintType, self.r) << (compBits * 3) |
-                @as(UintType, self.g) << (compBits * 2) |
-                @as(UintType, self.b) << compBits |
+            return @as(UintType, self.r) << (comp_bits * 3) |
+                @as(UintType, self.g) << (comp_bits * 2) |
+                @as(UintType, self.b) << comp_bits |
                 @as(UintType, self.a);
         }
 
         pub inline fn fromValue(value: UintType) Self {
             return Self{
-                .r = @truncate(ComponentType, value >> (compBits * 3)),
-                .g = @truncate(ComponentType, value >> (compBits * 2)),
-                .b = @truncate(ComponentType, value >> compBits),
+                .r = @truncate(ComponentType, value >> (comp_bits * 3)),
+                .g = @truncate(ComponentType, value >> (comp_bits * 2)),
+                .b = @truncate(ComponentType, value >> comp_bits),
                 .a = @truncate(ComponentType, value),
             };
         }
