@@ -37,13 +37,13 @@ fn Reader(comptime isFromFile: bool) type {
 
     const common = struct {
         pub fn processChunk(id: u32, chunkProcessData: *png.ChunkProcessData) ImageParsingError!void {
-            var resultFormat = chunkProcessData.currentFormat;
             for (chunkProcessData.options.processors) |*processor| {
                 if (processor.id == id) {
-                    resultFormat = try processor.processChunk(chunkProcessData);
+                    var newFormat = try processor.processChunk(chunkProcessData);
+                    std.debug.assert(newFormat.getPixelStride() >= chunkProcessData.currentFormat.getPixelStride());
+                    chunkProcessData.currentFormat = newFormat;
                 }
             }
-            chunkProcessData.currentFormat = resultFormat;
         }
     };
 
@@ -250,10 +250,10 @@ fn Reader(comptime isFromFile: bool) type {
             // decompressor.zig:294 claims to use 300KiB at most from provided allocator.
             // Original zlib claims it only needs 44KiB so next task is to rewrite zig zlib :).
 
-            var pixelFormat = chunkProcessData.currentFormat;
+            var destFormat = chunkProcessData.currentFormat;
             const width = header.width();
             const height = header.height();
-            var result = try PixelStorage.init(allocator, pixelFormat, width * height);
+            var result = try PixelStorage.init(allocator, destFormat, width * height);
             var idatChunksReader = IDatChunksReader.init(&self.rawReader, options.processors, chunkProcessData);
             var idatReader: IDATReader = .{ .context = &idatChunksReader };
             var decompressStream = std.compress.zlib.zlibStream(options.tempAllocator.?, idatReader) catch return error.InvalidData;
@@ -293,30 +293,30 @@ fn Reader(comptime isFromFile: bool) type {
             const filterStride = (header.bitDepth + 7) / 8 * channelCount; // 1 to 8 bytes
             const lineBytes = header.lineBytes();
             const virtualLineBytes = lineBytes + filterStride;
-            const resultLineBytes = @intCast(u32, dest.len / height);
-            var tmpBuffer = try allocator.alloc(u8, 2 * virtualLineBytes + resultLineBytes);
+            var tmpBuffer = try allocator.alloc(u8, 2 * virtualLineBytes);
             defer allocator.free(tmpBuffer);
             mem.set(u8, tmpBuffer, 0);
             var prevRow = tmpBuffer[0..virtualLineBytes];
-            var currentRow = tmpBuffer[virtualLineBytes .. 2 * virtualLineBytes];
-            var destRow = tmpBuffer[2 * virtualLineBytes ..];
+            var currentRow = tmpBuffer[virtualLineBytes..];
+            const resultLineBytes = @intCast(u32, dest.len / height);
             const pixelStride = resultLineBytes / width;
+            std.debug.assert(pixelStride == destFormat.getPixelStride());
 
             var i: u32 = 0;
-            const destLineStride = dest.len / height;
-            var destPixelFormat = pixelFormat;
             while (i < height) : (i += 1) {
                 var filled = decompressStream.read(currentRow[filterStride - 1 ..]) catch return error.InvalidData;
                 if (filled != lineBytes + 1) return error.EndOfStream;
                 try defilter(currentRow, prevRow, filterStride);
                 currentRow[filterStride - 1] = 0; // zero out the filter byte
 
+                var destRow = dest[0..resultLineBytes];
+                dest = dest[resultLineBytes..];
+
                 // Spread raw data into destRow
                 var pix: u32 = 0;
                 var srcPix: u32 = filterStride;
                 switch (header.bitDepth) {
                     1, 2, 4 => {
-                        if (pixelFormat.is16Bit()) pix += pixelStride - 1;
                         while (pix < resultLineBytes) {
                             // colorType must be Grayscale or Indexed
                             var shift = @intCast(i4, 8 - header.bitDepth);
@@ -330,7 +330,6 @@ fn Reader(comptime isFromFile: bool) type {
                         }
                     },
                     8 => {
-                        if (pixelFormat.is16Bit()) pix += pixelStride - channelCount;
                         while (pix < resultLineBytes) : (pix += pixelStride) {
                             var c: u32 = 0;
                             while (c < channelCount) : (c += 1) {
@@ -354,10 +353,8 @@ fn Reader(comptime isFromFile: bool) type {
                     else => unreachable,
                 }
 
-                var resultFormat = process(currentRow[filterStride..], pixelFormat, dest[0..destLineStride], destPixelFormat);
-                if (resultFormat != destPixelFormat) return error.InvalidData;
-                mem.copy(u8, dest[0..destLineStride], destRow);
-                dest = dest[destLineStride..];
+                var resultFormat = try process(destRow, header.getPixelFormat(), destFormat, header, options);
+                if (resultFormat != destFormat) return error.InvalidData;
 
                 var tmp = prevRow;
                 prevRow = currentRow;
@@ -368,16 +365,32 @@ fn Reader(comptime isFromFile: bool) type {
         }
 
         fn processPalette(processors: []png.ReaderProcessor, palette: []color.Colorf32) ImageParsingError!void {
+            var processData = png.PaletteProcessData{ .palette = palette };
             for (processors) |*processor| {
-                try processor.processPalette(&.{ .palette = palette });
+                try processor.processPalette(&processData);
             }
         }
 
-        fn process(sourceRow: []u8, sourceFormat: PixelFormat, destRow: []u8, destFormat: PixelFormat) PixelFormat {
-            _ = sourceRow;
-            _ = sourceFormat;
-            _ = destRow;
-            return destFormat;
+        fn process(
+            destRow: []u8,
+            srcFormat: PixelFormat,
+            destFormat: PixelFormat,
+            header: *const png.HeaderData,
+            options: *const png.ReaderOptions,
+        ) ImageParsingError!PixelFormat {
+            var processData = png.RowProcessData{
+                .destRow = destRow,
+                .srcFormat = srcFormat,
+                .destFormat = destFormat,
+                .header = header,
+                .options = options,
+            };
+            var resultFormat = srcFormat;
+            for (options.processors) |*processor| {
+                resultFormat = try processor.processDataRow(&processData);
+                processData.srcFormat = resultFormat;
+            }
+            return resultFormat;
         }
 
         fn defilter(currentRow: []u8, prevRow: []u8, filterStride: u8) ImageParsingError!void {

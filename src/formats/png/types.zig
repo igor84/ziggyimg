@@ -74,9 +74,8 @@ pub const PaletteProcessData = struct {
 };
 
 pub const RowProcessData = struct {
-    sourceRow: []u8,
-    sourceFormat: PixelFormat,
     destRow: []u8,
+    srcFormat: PixelFormat,
     destFormat: PixelFormat,
     header: *const HeaderData,
     options: *const ReaderOptions,
@@ -223,48 +222,61 @@ pub const TrnsProcessor = struct {
 
     pub fn processDataRow(self: *Self, data: *RowProcessData) ImageParsingError!PixelFormat {
         self.pltOrDataFound = true;
-        if (data.sourceFormat.isIndex()) return data.sourceFormat;
+        if (data.srcFormat.isIndex() or self.trnsData == .unset) return data.srcFormat;
         var pixelStride: u8 = switch (data.destFormat) {
             .Grayscale8Alpha, .Grayscale16Alpha => 2,
             .Rgba32, .Bgra32 => 4,
             .Rgba64 => 8,
-            else => return data.sourceFormat,
+            else => return data.srcFormat,
         };
         var pixelPos: u32 = 0;
         switch (self.trnsData) {
             .gray => |grayAlpha| {
-                switch (data.sourceFormat) {
+                switch (data.srcFormat) {
                     .Grayscale1, .Grayscale2, .Grayscale4, .Grayscale8 => {
-                        for (data.sourceRow) |sourceByte| {
-                            var shiftCounter: i4 = @intCast(i4, 8 - @enumToInt(data.sourceFormat) & 7);
-                            while (shiftCounter >= 0) : (shiftCounter -= 1) {
-                                var shift = @intCast(u3, shiftCounter);
-                                var val = (sourceByte & (@as(u8, 1) << shift)) >> shift;
-                                data.destRow[pixelPos] = val * 255;
-                                data.destRow[pixelPos + 1] = (val ^ @truncate(u8, grayAlpha)) *| 255;
-                                pixelPos += pixelStride;
-                            }
+                        while (pixelPos + 1 < data.destRow.len) : (pixelPos += pixelStride) {
+                            data.destRow[pixelPos + 1] = (data.destRow[pixelPos] ^ @truncate(u8, grayAlpha)) *| 255;
                         }
                         return .Grayscale8Alpha;
                     },
                     .Grayscale16 => {
                         var dest = std.mem.bytesAsSlice(u16, data.destRow);
-                        for (std.mem.bytesAsSlice(u16, data.sourceRow)) |sourceWord| {
-                            var val = sourceWord;
-                            dest[pixelPos] = val;
-                            dest[pixelPos + 1] = (val ^ grayAlpha) *| 65535;
-                            pixelPos += pixelStride;
+                        while (pixelPos + 1 < dest.len) : (pixelPos += pixelStride) {
+                            dest[pixelPos + 1] = (data.destRow[pixelPos] ^ grayAlpha) *| 65535;
                         }
                         return .Grayscale16Alpha;
                     },
-                    .Rgb24 => {},
-                    .Rgb48 => {},
-                    else => {},
+                    else => unreachable,
                 }
             },
-            else => {},
+            .rgb => |trColor| {
+                switch (data.srcFormat) {
+                    .Rgb24 => {
+                        var dest = std.mem.bytesAsSlice(color.Rgba32, data.destRow);
+                        pixelStride /= 4;
+                        while (pixelPos < dest.len) : (pixelPos += pixelStride) {
+                            var val = dest[pixelPos];
+                            val.a = if (val.r == trColor.r and val.g == trColor.g and val.b == trColor.b) 0 else 255;
+                            dest[pixelPos] = val;
+                        }
+                        return .Rgba32;
+                    },
+                    .Rgb48 => {
+                        var dest = std.mem.bytesAsSlice(color.Rgba64, data.destRow);
+                        pixelStride = 1;
+                        while (pixelPos < dest.len) : (pixelPos += pixelStride) {
+                            var val = dest[pixelPos];
+                            val.a = if (val.r == trColor.r and val.g == trColor.g and val.b == trColor.b) 0 else 65535;
+                            dest[pixelPos] = val;
+                        }
+                        return .Rgba64;
+                    },
+                    else => unreachable,
+                }
+            },
+            else => unreachable,
         }
-        return data.sourceFormat;
+        return data.srcFormat;
     }
 };
 
