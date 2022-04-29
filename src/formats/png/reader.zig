@@ -158,6 +158,8 @@ fn Reader(comptime is_from_file: bool) type {
             allocator: Allocator,
             options: *const png.ReaderOptions,
         ) ImageParsingError!void {
+            // decompressor.zig:294 claims to use 300KiB at most from provided allocator.
+            // Original zlib claims it only needs 44KiB so next task is to rewrite zig zlib :).
             var tmp_buffer: [500 * 1024]u8 = undefined;
             var new_options = options.*;
             new_options.temp_allocator = std.heap.FixedBufferAllocator.init(tmp_buffer[0..]).allocator();
@@ -247,9 +249,6 @@ fn Reader(comptime is_from_file: bool) type {
             options: *const png.ReaderOptions,
             chunk_process_data: *png.ChunkProcessData,
         ) ImageParsingError!PixelStorage {
-            // decompressor.zig:294 claims to use 300KiB at most from provided allocator.
-            // Original zlib claims it only needs 44KiB so next task is to rewrite zig zlib :).
-
             var dest_format = chunk_process_data.current_format;
             const width = header.width();
             const height = header.height();
@@ -376,6 +375,7 @@ fn Reader(comptime is_from_file: bool) type {
             const filter_byte = current_row[filter_stride - 1];
             if (filter_byte > @enumToInt(png.FilterType.paeth)) return error.InvalidData;
             const filter = @intToEnum(png.FilterType, filter_byte);
+            current_row[filter_stride - 1] = 0;
 
             var x: u32 = filter_stride;
             switch (filter) {
@@ -416,6 +416,38 @@ const expectError = std.testing.expectError;
 
 const valid_header_buf = png.magic_header ++ "\x00\x00\x00\x0d" ++ png.HeaderData.chunk_type ++
     "\x00\x00\x00\xff\x00\x00\x00\x75\x08\x06\x00\x00\x01\xd7\xc0\x29\x6f";
+
+test "testDefilter" {
+    var buffer = [_]u8{ 0, 1, 2, 3, 0, 5, 6, 7 };
+    // Start with none filter
+    var current_row: []u8 = buffer[4..];
+    var prev_row: []u8 = buffer[0..4];
+    var filter_stride: u8 = 1;
+
+    try testFilter(png.FilterType.none, current_row, prev_row, filter_stride, &[_]u8{ 0, 5, 6, 7 });
+    try testFilter(png.FilterType.sub, current_row, prev_row, filter_stride, &[_]u8{ 0, 5, 11, 18 });
+    try testFilter(png.FilterType.up, current_row, prev_row, filter_stride, &[_]u8{ 0, 6, 13, 21 });
+    try testFilter(png.FilterType.average, current_row, prev_row, filter_stride, &[_]u8{ 0, 6, 17, 31 });
+    try testFilter(png.FilterType.paeth, current_row, prev_row, filter_stride, &[_]u8{ 0, 7, 24, 55 });
+
+    var buffer16 = [_]u8{ 0, 0, 1, 2, 3, 4, 5, 6, 7, 0, 0, 8, 9, 10, 11, 12, 13, 14 };
+    current_row = buffer16[9..];
+    prev_row = buffer16[0..9];
+    filter_stride = 2;
+
+    try testFilter(png.FilterType.none, current_row, prev_row, filter_stride, &[_]u8{ 0, 0, 8, 9, 10, 11, 12, 13, 14 });
+    try testFilter(png.FilterType.sub, current_row, prev_row, filter_stride, &[_]u8{ 0, 0, 8, 9, 18, 20, 30, 33, 44 });
+    try testFilter(png.FilterType.up, current_row, prev_row, filter_stride, &[_]u8{ 0, 0, 9, 11, 21, 24, 35, 39, 51 });
+    try testFilter(png.FilterType.average, current_row, prev_row, filter_stride, &[_]u8{ 0, 0, 9, 12, 27, 32, 51, 58, 80 });
+    try testFilter(png.FilterType.paeth, current_row, prev_row, filter_stride, &[_]u8{ 0, 0, 10, 14, 37, 46, 88, 104, 168 });
+}
+
+fn testFilter(filter_type: png.FilterType, current_row: []u8, prev_row: []u8, filter_stride: u8, expected: []const u8) !void {
+    const expectEqualSlices = std.testing.expectEqualSlices;
+    current_row[filter_stride - 1] = @enumToInt(filter_type);
+    try BufferReader.defilter(current_row, prev_row, filter_stride);
+    try expectEqualSlices(u8, expected, current_row);
+}
 
 test "loadHeader_valid" {
     const expectEqual = std.testing.expectEqual;
