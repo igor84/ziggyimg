@@ -49,30 +49,8 @@ pub const PixelFormat = enum(u32) {
     }
 
     pub fn getPixelStride(self: Self) u8 {
-        // TODO: Test if there is speed diff
-        var enum_val = @enumToInt(self);
-        var channels = (enum_val & 0xf00) >> 8;
-        if (channels == 0) channels = 1;
-        return @intCast(u8, (channels * (enum_val & 0xff) + 7) / 8);
-        // return switch (self) {
-        //     .index1, .index2, .index4, .index8,
-        //     .grayscale1, .grayscale2, .grayscale4, .grayscale8 => 1,
-        //     .index16, .grayscale16, .grayscale8Alpha, .rgb565, .rgb555 => 2,
-        //     .rgb24, .bgr24 => 3,
-        //     .grayscale16Alpha, .rgba32, .bgra32 => 4,
-        //     .rgb48 => 6,
-        //     .rgba64 => 8,
-        //     .float32 => 16,
-        // };
-    }
-};
-
-test "GetPixelStride" {
-    const std = @import("std");
-    const fields = @typeInfo(PixelFormat).Enum.fields;
-    inline for (fields) |field| {
-        const val = @intToEnum(PixelFormat, field.value);
-        const expected: u8 = switch (val) {
+        // Using bit manipulations of values is not really faster than this switch
+        return switch (self) {
             .index1, .index2, .index4, .index8, .grayscale1, .grayscale2, .grayscale4, .grayscale8 => 1,
             .index16, .grayscale16, .grayscale8Alpha, .rgb565, .rgb555 => 2,
             .rgb24, .bgr24 => 3,
@@ -81,6 +59,5 @@ test "GetPixelStride" {
             .rgba64 => 8,
             .float32 => 16,
         };
-        try std.testing.expectEqual(expected, val.getPixelStride());
     }
-}
+};

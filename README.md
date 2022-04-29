@@ -22,6 +22,7 @@ zig build test
 
 ## TODO
 - [ ] Add Png Test suite
+- [ ] Review usage of var vs const
 - [ ] Implement RGB deinterlacing
 - [ ] Implement RGB processor that converts palette to rgb
 - [ ] Execute performance tests
