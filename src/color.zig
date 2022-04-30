@@ -153,7 +153,7 @@ fn getStdIlluminantsCount(comptime decls: anytype) u32 {
 }
 
 pub inline fn toIntColor(comptime T: type, value: f32) T {
-    return math.clamp(@floatToInt(T, math.round(value * @intToFloat(f32, math.maxInt(T)))), math.minInt(T), math.maxInt(T));
+    return math.clamp(@floatToInt(T, @round(value * @intToFloat(f32, math.maxInt(T)))), math.minInt(T), math.maxInt(T));
 }
 
 pub inline fn toF32Color(value: anytype) f32 {
