@@ -267,8 +267,7 @@ fn Reader(comptime is_from_file: bool) type {
             var dest = result.pixelsAsBytes();
 
             // For defiltering we need to keep two rows in memory so we allocate space for that
-            const channel_count = header.channelCount();
-            const filter_stride = (header.bit_depth + 7) / 8 * channel_count; // 1 to 8 bytes
+            const filter_stride = (header.bit_depth + 7) / 8 * header.channelCount(); // 1 to 8 bytes
             const line_bytes = header.lineBytes();
             const virtual_line_bytes = line_bytes + filter_stride;
             var tmp_buffer = try allocator.alloc(u8, 2 * virtual_line_bytes);
@@ -277,7 +276,7 @@ fn Reader(comptime is_from_file: bool) type {
             var prev_row = tmp_buffer[0..virtual_line_bytes];
             var current_row = tmp_buffer[virtual_line_bytes..];
             const result_line_bytes = @intCast(u32, dest.len / height);
-            const pixel_stride = result_line_bytes / width;
+            const pixel_stride = @intCast(u8, result_line_bytes / width);
             std.debug.assert(pixel_stride == dest_format.getPixelStride());
 
             var i: u32 = 0;
@@ -290,46 +289,7 @@ fn Reader(comptime is_from_file: bool) type {
                 var dest_row = dest[0..result_line_bytes];
                 dest = dest[result_line_bytes..];
 
-                // Spread raw data into dest_row
-                var pix: u32 = 0;
-                var src_pix: u32 = filter_stride;
-                switch (header.bit_depth) {
-                    1, 2, 4 => {
-                        while (pix < result_line_bytes) {
-                            // color_type must be Grayscale or Indexed
-                            var shift = @intCast(i4, 8 - header.bit_depth);
-                            var mask = @as(u8, 0xff) << @intCast(u3, shift);
-
-                            while (shift > 0 and pix < result_line_bytes) : (shift -= @intCast(i4, header.bit_depth)) {
-                                dest_row[pix] = (current_row[src_pix] & mask) >> @intCast(u3, shift);
-                                pix += pixel_stride;
-                            }
-                            src_pix += 1;
-                        }
-                    },
-                    8 => {
-                        while (pix < result_line_bytes) : (pix += pixel_stride) {
-                            var c: u32 = 0;
-                            while (c < channel_count) : (c += 1) {
-                                dest_row[pix + c] = current_row[src_pix + c];
-                            }
-                            src_pix += channel_count;
-                        }
-                    },
-                    16 => {
-                        var current_row16 = mem.bytesAsSlice(u16, current_row);
-                        var dest_row16 = mem.bytesAsSlice(u16, dest_row);
-                        const pixel_stride16 = pixel_stride / 2;
-                        while (pix < dest_row16.len) : (pix += pixel_stride16) {
-                            var c: u32 = 0;
-                            while (c < channel_count) : (c += 1) {
-                                dest_row16[pix + c] = current_row16[src_pix + c];
-                            }
-                            src_pix += channel_count;
-                        }
-                    },
-                    else => unreachable,
-                }
+                spreadRowData(dest_row, current_row, header, filter_stride, pixel_stride);
 
                 var result_format = try processRow(dest_row, header.getPixelFormat(), dest_format, header, options);
                 if (result_format != dest_format) return error.InvalidData;
@@ -347,28 +307,6 @@ fn Reader(comptime is_from_file: bool) type {
             for (processors) |*processor| {
                 try processor.processPalette(&process_data);
             }
-        }
-
-        fn processRow(
-            dest_row: []u8,
-            src_format: PixelFormat,
-            dest_format: PixelFormat,
-            header: *const png.HeaderData,
-            options: *const png.ReaderOptions,
-        ) ImageParsingError!PixelFormat {
-            var process_data = png.RowProcessData{
-                .dest_row = dest_row,
-                .src_format = src_format,
-                .dest_format = dest_format,
-                .header = header,
-                .options = options,
-            };
-            var resultFormat = src_format;
-            for (options.processors) |*processor| {
-                resultFormat = try processor.processDataRow(&process_data);
-                process_data.src_format = resultFormat;
-            }
-            return resultFormat;
         }
 
         fn defilter(current_row: []u8, prev_row: []u8, filter_stride: u8) ImageParsingError!void {
@@ -406,6 +344,79 @@ fn Reader(comptime is_from_file: bool) type {
                     // zig fmt: on
                 },
             }
+        }
+
+        fn spreadRowData(
+            dest_row: []u8,
+            current_row: []u8,
+            header: *const png.HeaderData,
+            filter_stride: u8,
+            pixel_stride: u8,
+        ) void {
+            var pix: u32 = 0;
+            var src_pix: u32 = filter_stride;
+            const result_line_bytes = dest_row.len;
+            const channel_count = header.channelCount();
+            switch (header.bit_depth) {
+                1, 2, 4 => {
+                    while (pix < result_line_bytes) {
+                        // color_type must be Grayscale or Indexed
+                        var shift = @intCast(i4, 8 - header.bit_depth);
+                        var mask = @as(u8, 0xff) << @intCast(u3, shift);
+                        while (shift >= 0 and pix < result_line_bytes) : (shift -= @intCast(i4, header.bit_depth)) {
+                            dest_row[pix] = (current_row[src_pix] & mask) >> @intCast(u3, shift);
+                            pix += pixel_stride;
+                            mask >>= @intCast(u3, header.bit_depth);
+                        }
+                        src_pix += 1;
+                    }
+                },
+                8 => {
+                    while (pix < result_line_bytes) : (pix += pixel_stride) {
+                        var c: u32 = 0;
+                        while (c < channel_count) : (c += 1) {
+                            dest_row[pix + c] = current_row[src_pix + c];
+                        }
+                        src_pix += channel_count;
+                    }
+                },
+                16 => {
+                    var current_row16 = mem.bytesAsSlice(u16, current_row);
+                    var dest_row16 = mem.bytesAsSlice(u16, dest_row);
+                    const pixel_stride16 = pixel_stride / 2;
+                    src_pix /= 2;
+                    while (pix < dest_row16.len) : (pix += pixel_stride16) {
+                        var c: u32 = 0;
+                        while (c < channel_count) : (c += 1) {
+                            dest_row16[pix + c] = current_row16[src_pix + c];
+                        }
+                        src_pix += channel_count;
+                    }
+                },
+                else => unreachable,
+            }
+        }
+
+        fn processRow(
+            dest_row: []u8,
+            src_format: PixelFormat,
+            dest_format: PixelFormat,
+            header: *const png.HeaderData,
+            options: *const png.ReaderOptions,
+        ) ImageParsingError!PixelFormat {
+            var process_data = png.RowProcessData{
+                .dest_row = dest_row,
+                .src_format = src_format,
+                .dest_format = dest_format,
+                .header = header,
+                .options = options,
+            };
+            var resultFormat = src_format;
+            for (options.processors) |*processor| {
+                resultFormat = try processor.processDataRow(&process_data);
+                process_data.src_format = resultFormat;
+            }
+            return resultFormat;
         }
     };
 }
@@ -447,6 +458,105 @@ fn testFilter(filter_type: png.FilterType, current_row: []u8, prev_row: []u8, fi
     current_row[filter_stride - 1] = @enumToInt(filter_type);
     try BufferReader.defilter(current_row, prev_row, filter_stride);
     try expectEqualSlices(u8, expected, current_row);
+}
+
+test "spreadRowData" {
+    var header: png.HeaderData = undefined;
+    header.color_type = png.ColorType.grayscale;
+    header.bit_depth = 1;
+    // 16 destination bytes, filter byte and two more bytes of current_row
+    var dest_buffer = [_]u8{0} ** 32;
+    var cur_buffer = [_]u8{ 0, 0, 0, 0, 0xa5, 0x7c, 0x39, 0xf2, 0x5b, 0x15, 0x78, 0xd1 };
+    var dest_row: []u8 = dest_buffer[0..16];
+    var current_row: []u8 = cur_buffer[3..6];
+    var filter_stride: u8 = 1;
+    var pixel_stride: u8 = 1;
+    const expectEqualSlices = std.testing.expectEqualSlices;
+
+    BufferReader.spreadRowData(dest_row, current_row, &header, filter_stride, pixel_stride);
+    try expectEqualSlices(u8, &[_]u8{ 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 0 }, dest_row);
+    dest_row = dest_buffer[0..32];
+    pixel_stride = 2;
+    std.mem.set(u8, dest_row, 0);
+    BufferReader.spreadRowData(dest_row, current_row, &header, filter_stride, pixel_stride);
+    try expectEqualSlices(u8, &[_]u8{ 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0 }, dest_row);
+
+    header.bit_depth = 2;
+    pixel_stride = 1;
+    dest_row = dest_buffer[0..8];
+    BufferReader.spreadRowData(dest_row, current_row, &header, filter_stride, pixel_stride);
+    try expectEqualSlices(u8, &[_]u8{ 2, 2, 1, 1, 1, 3, 3, 0 }, dest_row);
+    dest_row = dest_buffer[0..16];
+    pixel_stride = 2;
+    std.mem.set(u8, dest_row, 0);
+    BufferReader.spreadRowData(dest_row, current_row, &header, filter_stride, pixel_stride);
+    try expectEqualSlices(u8, &[_]u8{ 2, 0, 2, 0, 1, 0, 1, 0, 1, 0, 3, 0, 3, 0, 0, 0 }, dest_row);
+
+    header.bit_depth = 4;
+    pixel_stride = 1;
+    dest_row = dest_buffer[0..4];
+    BufferReader.spreadRowData(dest_row, current_row, &header, filter_stride, pixel_stride);
+    try expectEqualSlices(u8, &[_]u8{ 0xa, 0x5, 0x7, 0xc }, dest_row);
+    dest_row = dest_buffer[0..8];
+    pixel_stride = 2;
+    std.mem.set(u8, dest_row, 0);
+    BufferReader.spreadRowData(dest_row, current_row, &header, filter_stride, pixel_stride);
+    try expectEqualSlices(u8, &[_]u8{ 0xa, 0, 0x5, 0, 0x7, 0, 0xc, 0 }, dest_row);
+
+    header.bit_depth = 8;
+    pixel_stride = 1;
+    dest_row = dest_buffer[0..2];
+    BufferReader.spreadRowData(dest_row, current_row, &header, filter_stride, pixel_stride);
+    try expectEqualSlices(u8, &[_]u8{ 0xa5, 0x7c }, dest_row);
+    dest_row = dest_buffer[0..4];
+    pixel_stride = 2;
+    std.mem.set(u8, dest_row, 0);
+    BufferReader.spreadRowData(dest_row, current_row, &header, filter_stride, pixel_stride);
+    try expectEqualSlices(u8, &[_]u8{ 0xa5, 0, 0x7c, 0 }, dest_row);
+
+    header.color_type = png.ColorType.grayscale_alpha;
+    header.bit_depth = 8;
+    current_row = cur_buffer[2..8];
+    dest_row = dest_buffer[0..4];
+    filter_stride = 2;
+    pixel_stride = 2;
+    BufferReader.spreadRowData(dest_row, current_row, &header, filter_stride, pixel_stride);
+    try expectEqualSlices(u8, &[_]u8{ 0xa5, 0x7c, 0x39, 0xf2 }, dest_row);
+    dest_row = dest_buffer[0..8];
+    std.mem.set(u8, dest_row, 0);
+    pixel_stride = 4;
+    BufferReader.spreadRowData(dest_row, current_row, &header, filter_stride, pixel_stride);
+    try expectEqualSlices(u8, &[_]u8{ 0xa5, 0x7c, 0, 0, 0x39, 0xf2, 0, 0 }, dest_row);
+
+    header.color_type = png.ColorType.grayscale_alpha;
+    header.bit_depth = 16;
+    current_row = cur_buffer[0..12];
+    dest_row = dest_buffer[0..8];
+    filter_stride = 4;
+    pixel_stride = 4;
+    BufferReader.spreadRowData(dest_row, current_row, &header, filter_stride, pixel_stride);
+    try expectEqualSlices(u8, &[_]u8{ 0xa5, 0x7c, 0x39, 0xf2, 0x5b, 0x15, 0x78, 0xd1 }, dest_row);
+
+    header.color_type = png.ColorType.rgb_color;
+    header.bit_depth = 8;
+    current_row = cur_buffer[1..10];
+    dest_row = dest_buffer[0..8];
+    std.mem.set(u8, dest_row, 0);
+    filter_stride = 3;
+    pixel_stride = 4;
+    BufferReader.spreadRowData(dest_row, current_row, &header, filter_stride, pixel_stride);
+    try expectEqualSlices(u8, &[_]u8{ 0xa5, 0x7c, 0x39, 0, 0xf2, 0x5b, 0x15, 0 }, dest_row);
+
+    header.color_type = png.ColorType.rgba_color;
+    header.bit_depth = 16;
+    var cbuffer16 = [_]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0xa5, 0x7c, 0x39, 0xf2, 0x5b, 0x15, 0x78, 0xd1 };
+    current_row = cbuffer16[0..];
+    dest_row = dest_buffer[0..8];
+    std.mem.set(u8, dest_row, 0);
+    filter_stride = 8;
+    pixel_stride = 8;
+    BufferReader.spreadRowData(dest_row, current_row, &header, filter_stride, pixel_stride);
+    try expectEqualSlices(u8, &[_]u8{ 0xa5, 0x7c, 0x39, 0xf2, 0x5b, 0x15, 0x78, 0xd1 }, dest_row);
 }
 
 test "loadHeader_valid" {
