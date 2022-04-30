@@ -36,8 +36,8 @@ fn Reader(comptime is_from_file: bool) type {
     const RawReader = if (is_from_file) RawFileReader else RawBufferReader;
 
     const Common = struct {
-        pub fn processChunk(id: u32, chunk_process_data: *ChunkProcessData) ImageParsingError!void {
-            for (chunk_process_data.options.processors) |*processor| {
+        pub fn processChunk(processors: []ReaderProcessor, id: u32, chunk_process_data: *ChunkProcessData) ImageParsingError!void {
+            for (processors) |*processor| {
                 if (processor.id == id) {
                     var new_format = try processor.processChunk(chunk_process_data);
                     std.debug.assert(new_format.getPixelStride() >= chunk_process_data.current_format.getPixelStride());
@@ -86,7 +86,7 @@ fn Reader(comptime is_from_file: bool) type {
                 const expected_crc = try self.raw_reader.readIntBig(u32);
                 if (self.crc.final() != expected_crc) return error.InvalidData;
 
-                try Common.processChunk(png.HeaderData.chunk_type_id, self.chunk_process_data);
+                try Common.processChunk(self.processors, png.HeaderData.chunk_type_id, self.chunk_process_data);
 
                 self.crc = Crc32.init();
 
@@ -180,9 +180,9 @@ fn Reader(comptime is_from_file: bool) type {
                 .chunk_length = @sizeOf(png.HeaderData),
                 .current_format = header.getPixelFormat(),
                 .header = header,
-                .options = options,
+                .temp_allocator = options.temp_allocator.?,
             };
-            try Common.processChunk(png.HeaderData.chunk_type_id, &chunk_process_data);
+            try Common.processChunk(options.processors, png.HeaderData.chunk_type_id, &chunk_process_data);
 
             while (true) {
                 var chunk = try self.raw_reader.readStruct(png.ChunkHeader);
@@ -195,7 +195,7 @@ fn Reader(comptime is_from_file: bool) type {
                         if (!data_found) return error.InvalidData;
                         _ = try self.raw_reader.readInt(u32); // Read and ignore the crc
                         chunk_process_data.chunk_length = chunk.length();
-                        try Common.processChunk(chunk.type, &chunk_process_data);
+                        try Common.processChunk(options.processors, chunk.type, &chunk_process_data);
                         break;
                     },
                     asU32("IDAT") => {
@@ -230,12 +230,12 @@ fn Reader(comptime is_from_file: bool) type {
                             var actual_crc = Crc32.hash(mem.sliceAsBytes(palette));
                             if (expected_crc != actual_crc) return error.InvalidData;
                             chunk_process_data.chunk_length = chunk_length;
-                            try Common.processChunk(chunk.type, &chunk_process_data);
+                            try Common.processChunk(options.processors, chunk.type, &chunk_process_data);
                         }
                     },
                     else => {
                         chunk_process_data.chunk_length = chunk.length();
-                        try Common.processChunk(chunk.type, &chunk_process_data);
+                        try Common.processChunk(options.processors, chunk.type, &chunk_process_data);
                     },
                 }
             }
@@ -261,7 +261,7 @@ fn Reader(comptime is_from_file: bool) type {
                 for (palette) |entry, n| {
                     dest_palette[n] = entry.toColorf32();
                 }
-                try processPalette(options.processors, dest_palette);
+                try processPalette(options, dest_palette);
             }
 
             var dest = result.pixelsAsBytes();
@@ -284,7 +284,7 @@ fn Reader(comptime is_from_file: bool) type {
                 .src_format = header.getPixelFormat(),
                 .dest_format = dest_format,
                 .header = header,
-                .options = options,
+                .temp_allocator = options.temp_allocator.?,
             };
 
             var i: u32 = 0;
@@ -299,7 +299,7 @@ fn Reader(comptime is_from_file: bool) type {
 
                 spreadRowData(process_row_data.dest_row, current_row, header, filter_stride, pixel_stride);
 
-                var result_format = try processRow(&process_row_data);
+                var result_format = try processRow(options.processors, &process_row_data);
                 if (result_format != dest_format) return error.InvalidData;
 
                 var tmp = prev_row;
@@ -310,9 +310,9 @@ fn Reader(comptime is_from_file: bool) type {
             return result;
         }
 
-        fn processPalette(processors: []ReaderProcessor, palette: []color.Colorf32) ImageParsingError!void {
-            var process_data = PaletteProcessData{ .palette = palette };
-            for (processors) |*processor| {
+        fn processPalette(options: *const ReaderOptions, palette: []color.Colorf32) ImageParsingError!void {
+            var process_data = PaletteProcessData{ .palette = palette, .temp_allocator = options.temp_allocator.? };
+            for (options.processors) |*processor| {
                 try processor.processPalette(&process_data);
             }
         }
@@ -405,9 +405,9 @@ fn Reader(comptime is_from_file: bool) type {
             }
         }
 
-        fn processRow(process_data: *RowProcessData) ImageParsingError!PixelFormat {
+        fn processRow(processors: []ReaderProcessor, process_data: *RowProcessData) ImageParsingError!PixelFormat {
             var result_format = process_data.src_format;
-            for (process_data.options.processors) |*processor| {
+            for (processors) |*processor| {
                 result_format = try processor.processDataRow(process_data);
                 process_data.src_format = result_format;
             }
@@ -421,11 +421,12 @@ pub const ChunkProcessData = struct {
     chunk_length: u32,
     current_format: PixelFormat,
     header: *const png.HeaderData,
-    options: *const ReaderOptions, // TODO Replace options with tmpAllocator if that is all that remains
+    temp_allocator: Allocator,
 };
 
 pub const PaletteProcessData = struct {
     palette: []color.Colorf32,
+    temp_allocator: Allocator,
 };
 
 pub const RowProcessData = struct {
@@ -433,7 +434,7 @@ pub const RowProcessData = struct {
     src_format: PixelFormat,
     dest_format: PixelFormat,
     header: *const png.HeaderData,
-    options: *const ReaderOptions,
+    temp_allocator: Allocator,
 };
 
 pub const ReaderProcessor = struct {
@@ -541,7 +542,7 @@ pub const TrnsProcessor = struct {
             },
             .indexed => {
                 if (data.chunk_length <= data.header.maxPaletteSize() and result_format.isIndex()) {
-                    self.trns_data = .{ .index_alpha = try data.options.temp_allocator.?.alloc(u8, data.chunk_length) };
+                    self.trns_data = .{ .index_alpha = try data.temp_allocator.alloc(u8, data.chunk_length) };
                     var filled = try data.raw_reader.read(self.trns_data.index_alpha);
                     if (filled != self.trns_data.index_alpha.len) return error.EndOfStream;
                 } else {
