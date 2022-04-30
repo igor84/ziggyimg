@@ -36,7 +36,7 @@ fn Reader(comptime is_from_file: bool) type {
     const RawReader = if (is_from_file) RawFileReader else RawBufferReader;
 
     const Common = struct {
-        pub fn processChunk(id: u32, chunk_process_data: *png.ChunkProcessData) ImageParsingError!void {
+        pub fn processChunk(id: u32, chunk_process_data: *ChunkProcessData) ImageParsingError!void {
             for (chunk_process_data.options.processors) |*processor| {
                 if (processor.id == id) {
                     var new_format = try processor.processChunk(chunk_process_data);
@@ -50,16 +50,16 @@ fn Reader(comptime is_from_file: bool) type {
     // Provides reader interface for Zlib stream that knows to read consecutive IDAT chunks.
     const IDatChunksReader = struct {
         raw_reader: *RawReader,
-        processors: []png.ReaderProcessor,
-        chunk_process_data: *png.ChunkProcessData,
+        processors: []ReaderProcessor,
+        chunk_process_data: *ChunkProcessData,
         crc: Crc32,
 
         const Self = @This();
 
         fn init(
             reader: *RawReader,
-            processors: []png.ReaderProcessor,
-            chunk_process_data: *png.ChunkProcessData,
+            processors: []ReaderProcessor,
+            chunk_process_data: *ChunkProcessData,
         ) Self {
             return .{
                 .raw_reader = reader,
@@ -130,7 +130,7 @@ fn Reader(comptime is_from_file: bool) type {
             return header.*;
         }
 
-        pub fn load(self: *Self, allocator: Allocator, options: png.ReaderOptions) ImageParsingError!void {
+        pub fn load(self: *Self, allocator: Allocator, options: ReaderOptions) ImageParsingError!void {
             var header = try self.loadHeader();
             try self.loadWithHeader(&header, allocator, options);
         }
@@ -143,7 +143,7 @@ fn Reader(comptime is_from_file: bool) type {
             self: *Self,
             header: *const png.HeaderData,
             allocator: Allocator,
-            options: png.ReaderOptions,
+            options: ReaderOptions,
         ) ImageParsingError!void {
             if (options.temp_allocator != null) {
                 try doLoad(self, header, allocator, &options);
@@ -156,7 +156,7 @@ fn Reader(comptime is_from_file: bool) type {
             self: *Self,
             header: *const png.HeaderData,
             allocator: Allocator,
-            options: *const png.ReaderOptions,
+            options: *const ReaderOptions,
         ) ImageParsingError!void {
             // decompressor.zig:294 claims to use 300KiB at most from provided allocator.
             // Original zlib claims it only needs 44KiB so next task is to rewrite zig zlib :).
@@ -170,12 +170,12 @@ fn Reader(comptime is_from_file: bool) type {
             self: *Self,
             header: *const png.HeaderData,
             allocator: Allocator,
-            options: *const png.ReaderOptions,
+            options: *const ReaderOptions,
         ) ImageParsingError!void {
             var palette: []color.Rgb24 = &[_]color.Rgb24{};
             var data_found = false;
 
-            var chunk_process_data = png.ChunkProcessData{
+            var chunk_process_data = ChunkProcessData{
                 .raw_reader = ImageReader.wrap(self.raw_reader),
                 .chunk_length = @sizeOf(png.HeaderData),
                 .current_format = header.getPixelFormat(),
@@ -246,8 +246,8 @@ fn Reader(comptime is_from_file: bool) type {
             header: *const png.HeaderData,
             palette: []color.Rgb24,
             allocator: Allocator,
-            options: *const png.ReaderOptions,
-            chunk_process_data: *png.ChunkProcessData,
+            options: *const ReaderOptions,
+            chunk_process_data: *ChunkProcessData,
         ) ImageParsingError!PixelStorage {
             var dest_format = chunk_process_data.current_format;
             const width = header.width();
@@ -279,6 +279,14 @@ fn Reader(comptime is_from_file: bool) type {
             const pixel_stride = @intCast(u8, result_line_bytes / width);
             std.debug.assert(pixel_stride == dest_format.getPixelStride());
 
+            var process_row_data = RowProcessData{
+                .dest_row = undefined,
+                .src_format = header.getPixelFormat(),
+                .dest_format = dest_format,
+                .header = header,
+                .options = options,
+            };
+
             var i: u32 = 0;
             while (i < height) : (i += 1) {
                 var filled = decompressStream.read(current_row[filter_stride - 1 ..]) catch return error.InvalidData;
@@ -286,12 +294,12 @@ fn Reader(comptime is_from_file: bool) type {
                 try defilter(current_row, prev_row, filter_stride);
                 current_row[filter_stride - 1] = 0; // zero out the filter byte
 
-                var dest_row = dest[0..result_line_bytes];
+                process_row_data.dest_row = dest[0..result_line_bytes];
                 dest = dest[result_line_bytes..];
 
-                spreadRowData(dest_row, current_row, header, filter_stride, pixel_stride);
+                spreadRowData(process_row_data.dest_row, current_row, header, filter_stride, pixel_stride);
 
-                var result_format = try processRow(dest_row, header.getPixelFormat(), dest_format, header, options);
+                var result_format = try processRow(&process_row_data);
                 if (result_format != dest_format) return error.InvalidData;
 
                 var tmp = prev_row;
@@ -302,8 +310,8 @@ fn Reader(comptime is_from_file: bool) type {
             return result;
         }
 
-        fn processPalette(processors: []png.ReaderProcessor, palette: []color.Colorf32) ImageParsingError!void {
-            var process_data = png.PaletteProcessData{ .palette = palette };
+        fn processPalette(processors: []ReaderProcessor, palette: []color.Colorf32) ImageParsingError!void {
+            var process_data = PaletteProcessData{ .palette = palette };
             for (processors) |*processor| {
                 try processor.processPalette(&process_data);
             }
@@ -397,29 +405,248 @@ fn Reader(comptime is_from_file: bool) type {
             }
         }
 
-        fn processRow(
-            dest_row: []u8,
-            src_format: PixelFormat,
-            dest_format: PixelFormat,
-            header: *const png.HeaderData,
-            options: *const png.ReaderOptions,
-        ) ImageParsingError!PixelFormat {
-            var process_data = png.RowProcessData{
-                .dest_row = dest_row,
-                .src_format = src_format,
-                .dest_format = dest_format,
-                .header = header,
-                .options = options,
-            };
-            var resultFormat = src_format;
-            for (options.processors) |*processor| {
-                resultFormat = try processor.processDataRow(&process_data);
-                process_data.src_format = resultFormat;
+        fn processRow(process_data: *RowProcessData) ImageParsingError!PixelFormat {
+            var result_format = process_data.src_format;
+            for (process_data.options.processors) |*processor| {
+                result_format = try processor.processDataRow(process_data);
+                process_data.src_format = result_format;
             }
-            return resultFormat;
+            return result_format;
         }
     };
 }
+
+pub const ChunkProcessData = struct {
+    raw_reader: imgio.ImageReader,
+    chunk_length: u32,
+    current_format: PixelFormat,
+    header: *const png.HeaderData,
+    options: *const ReaderOptions, // TODO Replace options with tmpAllocator if that is all that remains
+};
+
+pub const PaletteProcessData = struct {
+    palette: []color.Colorf32,
+};
+
+pub const RowProcessData = struct {
+    dest_row: []u8,
+    src_format: PixelFormat,
+    dest_format: PixelFormat,
+    header: *const png.HeaderData,
+    options: *const ReaderOptions,
+};
+
+pub const ReaderProcessor = struct {
+    id: u32,
+    context: *anyopaque,
+    vtable: *const VTable,
+
+    const VTable = struct {
+        chunk_processor: ?fn (context: *anyopaque, data: *ChunkProcessData) ImageParsingError!PixelFormat,
+        palette_processor: ?fn (context: *anyopaque, data: *PaletteProcessData) ImageParsingError!void,
+        data_row_processor: ?fn (context: *anyopaque, data: *RowProcessData) ImageParsingError!PixelFormat,
+    };
+
+    const Self = @This();
+
+    pub inline fn processChunk(self: *Self, data: *ChunkProcessData) ImageParsingError!PixelFormat {
+        return if (self.vtable.chunk_processor) |cp| cp(self.context, data) else data.current_format;
+    }
+
+    pub inline fn processPalette(self: *Self, data: *PaletteProcessData) ImageParsingError!void {
+        if (self.vtable.palette_processor) |pp| try pp(self.context, data);
+    }
+
+    pub inline fn processDataRow(self: *Self, data: *RowProcessData) ImageParsingError!PixelFormat {
+        return if (self.vtable.data_row_processor) |drp| drp(self.context, data) else data.dest_format;
+    }
+
+    pub fn init(
+        id: *const [4]u8,
+        context: anytype,
+        comptime chunkProcessorFn: ?fn (ptr: @TypeOf(context), data: *ChunkProcessData) ImageParsingError!PixelFormat,
+        comptime paletteProcessorFn: ?fn (ptr: @TypeOf(context), data: *PaletteProcessData) ImageParsingError!void,
+        comptime dataRowProcessorFn: ?fn (ptr: @TypeOf(context), data: *RowProcessData) ImageParsingError!PixelFormat,
+    ) Self {
+        const Ptr = @TypeOf(context);
+        const ptr_info = @typeInfo(Ptr);
+
+        std.debug.assert(ptr_info == .Pointer); // Must be a pointer
+        std.debug.assert(ptr_info.Pointer.size == .One); // Must be a single-item pointer
+
+        const alignment = ptr_info.Pointer.alignment;
+
+        const gen = struct {
+            fn chunkProcessor(ptr: *anyopaque, data: *ChunkProcessData) ImageParsingError!PixelFormat {
+                const self = @ptrCast(Ptr, @alignCast(alignment, ptr));
+                return @call(.{ .modifier = .always_inline }, chunkProcessorFn.?, .{ self, data });
+            }
+            fn paletteProcessor(ptr: *anyopaque, data: *PaletteProcessData) ImageParsingError!void {
+                const self = @ptrCast(Ptr, @alignCast(alignment, ptr));
+                return @call(.{ .modifier = .always_inline }, paletteProcessorFn.?, .{ self, data });
+            }
+            fn dataRowProcessor(ptr: *anyopaque, data: *RowProcessData) ImageParsingError!PixelFormat {
+                const self = @ptrCast(Ptr, @alignCast(alignment, ptr));
+                return @call(.{ .modifier = .always_inline }, dataRowProcessorFn.?, .{ self, data });
+            }
+
+            const vtable = VTable{
+                .chunk_processor = if (chunkProcessorFn == null) null else chunkProcessor,
+                .palette_processor = if (paletteProcessorFn == null) null else paletteProcessor,
+                .data_row_processor = if (dataRowProcessorFn == null) null else dataRowProcessor,
+            };
+        };
+
+        return .{
+            .id = std.mem.bytesToValue(u32, id),
+            .context = context,
+            .vtable = &gen.vtable,
+        };
+    }
+};
+
+pub const TrnsProcessor = struct {
+    const Self = @This();
+    const TRNSData = union(enum) { unset: u0, gray: u16, rgb: color.Rgb48, index_alpha: []u8 };
+
+    trns_data: TRNSData = .{ .unset = 0 },
+    processed: bool = false,
+
+    pub fn processor(self: *Self) ReaderProcessor {
+        return ReaderProcessor.init(
+            "tRNS",
+            self,
+            processChunk,
+            processPalette,
+            processDataRow,
+        );
+    }
+
+    pub fn processChunk(self: *Self, data: *ChunkProcessData) ImageParsingError!PixelFormat {
+        // We will allow multiple tRNS chunks and load the last one
+        // We ignore if we encounter this chunk with color_type that already has alpha
+        var result_format = data.current_format;
+        if (self.processed) {
+            _ = try data.raw_reader.readNoAlloc(data.chunk_length + @sizeOf(u32)); // Skip invalid
+            return result_format;
+        }
+        switch (data.header.color_type) {
+            .grayscale => {
+                if (data.chunk_length == 2 and result_format.isJustGrayscale()) {
+                    self.trns_data = .{ .gray = try data.raw_reader.readIntBig(u16) };
+                    result_format = if (data.header.bit_depth == 16) .grayscale16Alpha else .grayscale8Alpha;
+                } else {
+                    _ = try data.raw_reader.readNoAlloc(data.chunk_length); // Skip invalid
+                }
+            },
+            .indexed => {
+                if (data.chunk_length <= data.header.maxPaletteSize() and result_format.isIndex()) {
+                    self.trns_data = .{ .index_alpha = try data.options.temp_allocator.?.alloc(u8, data.chunk_length) };
+                    var filled = try data.raw_reader.read(self.trns_data.index_alpha);
+                    if (filled != self.trns_data.index_alpha.len) return error.EndOfStream;
+                } else {
+                    _ = try data.raw_reader.readNoAlloc(data.chunk_length); // Skip invalid
+                }
+            },
+            .rgb_color => {
+                if (data.chunk_length == @sizeOf(color.Rgb48) and result_format.isStandardRgb()) {
+                    self.trns_data = .{ .rgb = (try data.raw_reader.readStruct(color.Rgb48)).* };
+                    result_format = if (data.header.bit_depth == 16) .rgba64 else .rgba32;
+                } else {
+                    _ = try data.raw_reader.readNoAlloc(data.chunk_length); // Skip invalid
+                }
+            },
+            else => _ = try data.raw_reader.readNoAlloc(data.chunk_length), // Skip invalid
+        }
+        // Read but ignore Crc since this is not critical chunk
+        _ = try data.raw_reader.readNoAlloc(@sizeOf(u32));
+        return result_format;
+    }
+
+    pub fn processPalette(self: *Self, data: *PaletteProcessData) ImageParsingError!void {
+        self.processed = true;
+        switch (self.trns_data) {
+            .index_alpha => |index_alpha| {
+                for (index_alpha) |alpha, i| {
+                    data.palette[i].a = color.toF32Color(alpha);
+                }
+            },
+            else => unreachable,
+        }
+    }
+
+    pub fn processDataRow(self: *Self, data: *RowProcessData) ImageParsingError!PixelFormat {
+        self.processed = true;
+        if (data.src_format.isIndex() or self.trns_data == .unset) return data.src_format;
+        var pixel_stride: u8 = switch (data.dest_format) {
+            .grayscale8Alpha, .grayscale16Alpha => 2,
+            .rgba32, .bgra32 => 4,
+            .rgba64 => 8,
+            else => return data.src_format,
+        };
+        var pixel_pos: u32 = 0;
+        switch (self.trns_data) {
+            .gray => |gray_alpha| {
+                switch (data.src_format) {
+                    .grayscale1, .grayscale2, .grayscale4, .grayscale8 => {
+                        while (pixel_pos + 1 < data.dest_row.len) : (pixel_pos += pixel_stride) {
+                            data.dest_row[pixel_pos + 1] = (data.dest_row[pixel_pos] ^ @truncate(u8, gray_alpha)) *| 255;
+                        }
+                        return .grayscale8Alpha;
+                    },
+                    .grayscale16 => {
+                        var dest = std.mem.bytesAsSlice(u16, data.dest_row);
+                        while (pixel_pos + 1 < dest.len) : (pixel_pos += pixel_stride) {
+                            dest[pixel_pos + 1] = (data.dest_row[pixel_pos] ^ gray_alpha) *| 65535;
+                        }
+                        return .grayscale16Alpha;
+                    },
+                    else => unreachable,
+                }
+            },
+            .rgb => |tr_color| {
+                switch (data.src_format) {
+                    .rgb24 => {
+                        var dest = std.mem.bytesAsSlice(color.Rgba32, data.dest_row);
+                        pixel_stride /= 4;
+                        while (pixel_pos < dest.len) : (pixel_pos += pixel_stride) {
+                            var val = dest[pixel_pos];
+                            val.a = if (val.r == tr_color.r and val.g == tr_color.g and val.b == tr_color.b) 0 else 255;
+                            dest[pixel_pos] = val;
+                        }
+                        return .rgba32;
+                    },
+                    .rgb48 => {
+                        var dest = std.mem.bytesAsSlice(color.Rgba64, data.dest_row);
+                        pixel_stride = 1;
+                        while (pixel_pos < dest.len) : (pixel_pos += pixel_stride) {
+                            var val = dest[pixel_pos];
+                            val.a = if (val.r == tr_color.r and val.g == tr_color.g and val.b == tr_color.b) 0 else 65535;
+                            dest[pixel_pos] = val;
+                        }
+                        return .rgba64;
+                    },
+                    else => unreachable,
+                }
+            },
+            else => unreachable,
+        }
+        return data.src_format;
+    }
+};
+
+pub const ReaderOptions = struct {
+    /// Allocator for temporary allocations. Max 500KiB will be allocated from it.
+    /// If not provided Reader will use stack memory. Some temp allocations depend
+    /// on image size so they will use the main allocator since we can't guarantee
+    /// they are bounded. They will be allocated after the destination image to
+    /// reduce memory fragmentation and freed internally.
+    temp_allocator: ?Allocator = null,
+    processors: []ReaderProcessor = def_processors[0..], // TODO: Can this be an array of pointers and should it
+};
+
+var def_trns_processor: TrnsProcessor = .{};
+var def_processors = [_]ReaderProcessor{def_trns_processor.processor()};
 
 // ********************* TESTS *********************
 
