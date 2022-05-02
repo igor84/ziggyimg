@@ -138,9 +138,9 @@ fn Reader(comptime is_from_file: bool) type {
         /// 1. tRNS processor that decodes the tRNS chunk if it exists into an alpha channel
         /// 2. PLTE processor that decodes the indexed image with a palette into RGB image.
         /// If you really don't want any processing pass in the `no_processors` in processors array.
-        pub fn load(self: *Self, allocator: Allocator, options: ReaderOptions) ImageParsingError!void {
+        pub fn load(self: *Self, allocator: Allocator, options: ReaderOptions) ImageParsingError!PixelStorage {
             var header = try self.loadHeader();
-            try self.loadWithHeader(&header, allocator, options);
+            return try self.loadWithHeader(&header, allocator, options);
         }
 
         /// Loads the png image for which the header has already been loaded.
@@ -150,7 +150,7 @@ fn Reader(comptime is_from_file: bool) type {
             header: *const png.HeaderData,
             allocator: Allocator,
             options: ReaderOptions,
-        ) ImageParsingError!void {
+        ) ImageParsingError!PixelStorage {
             var opts = options;
             // Empty processors array means you want to use defualt processors.
             if (options.processors.len == 0) {
@@ -158,10 +158,9 @@ fn Reader(comptime is_from_file: bool) type {
                 opts.processors = &.{trnsProcessor.processor()};
             }
             if (options.temp_allocator != null) {
-                try doLoad(self, header, allocator, &opts);
-            } else {
-                try prepareTmpAllocatorAndLoad(self, header, allocator, &opts);
+                return try doLoad(self, header, allocator, &opts);
             }
+            return try prepareTmpAllocatorAndLoad(self, header, allocator, &opts);
         }
 
         pub fn prepareTmpAllocatorAndLoad(
@@ -169,13 +168,13 @@ fn Reader(comptime is_from_file: bool) type {
             header: *const png.HeaderData,
             allocator: Allocator,
             options: *const ReaderOptions,
-        ) ImageParsingError!void {
+        ) ImageParsingError!PixelStorage {
             // decompressor.zig:294 claims to use 300KiB at most from provided allocator.
             // Original zlib claims it only needs 44KiB so next task is to rewrite zig zlib :).
             var tmp_buffer: [500 * 1024]u8 = undefined;
             var new_options = options.*;
             new_options.temp_allocator = std.heap.FixedBufferAllocator.init(tmp_buffer[0..]).allocator();
-            try doLoad(self, header, allocator, &new_options);
+            return try doLoad(self, header, allocator, &new_options);
         }
 
         fn asU32(str: *const [4:0]u8) u32 {
@@ -187,9 +186,10 @@ fn Reader(comptime is_from_file: bool) type {
             header: *const png.HeaderData,
             allocator: Allocator,
             options: *const ReaderOptions,
-        ) ImageParsingError!void {
+        ) ImageParsingError!PixelStorage {
             var palette: []color.Rgb24 = &[_]color.Rgb24{};
             var data_found = false;
+            var result: PixelStorage = undefined;
 
             var chunk_process_data = ChunkProcessData{
                 .raw_reader = ImageReader.wrap(self.raw_reader),
@@ -212,14 +212,14 @@ fn Reader(comptime is_from_file: bool) type {
                         _ = try self.raw_reader.readInt(u32); // Read and ignore the crc
                         chunk_process_data.chunk_length = chunk.length();
                         try Common.processChunk(options.processors, chunk.type, &chunk_process_data);
-                        break;
+                        return result;
                     },
                     asU32("IDAT") => {
                         if (data_found) return error.InvalidData;
                         if (header.color_type == .indexed and palette.len == 0) return error.InvalidData;
-                        data_found = true;
                         chunk_process_data.chunk_length = chunk.length();
-                        _ = try self.readAllData(header, palette, allocator, options, &chunk_process_data);
+                        result = try self.readAllData(header, palette, allocator, options, &chunk_process_data);
+                        data_found = true;
                     },
                     asU32("PLTE") => {
                         if (!header.allowsPalette()) return error.InvalidData;
