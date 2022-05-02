@@ -287,11 +287,12 @@ fn Reader(comptime is_from_file: bool) type {
             const filter_stride = (header.bit_depth + 7) / 8 * channel_count; // 1 to 8 bytes
             const line_bytes = header.lineBytes();
             const virtual_line_bytes = line_bytes + filter_stride;
-            var tmp_buffer = try allocator.alloc(u8, 2 * virtual_line_bytes);
+            const number_of_tmp_lines: u8 = if (header.interlace_method == .none) 2 else 3;
+            var tmp_buffer = try allocator.alloc(u8, number_of_tmp_lines * virtual_line_bytes);
             defer allocator.free(tmp_buffer);
             mem.set(u8, tmp_buffer, 0);
             var prev_row = tmp_buffer[0..virtual_line_bytes];
-            var current_row = tmp_buffer[virtual_line_bytes..];
+            var current_row = tmp_buffer[virtual_line_bytes .. 2 * virtual_line_bytes];
             const result_line_bytes = @intCast(u32, dest.len / height);
             const pixel_stride = @intCast(u8, result_line_bytes / width);
             std.debug.assert(pixel_stride == dest_format.getPixelStride());
@@ -304,24 +305,87 @@ fn Reader(comptime is_from_file: bool) type {
                 .temp_allocator = options.temp_allocator.?,
             };
 
-            var i: u32 = 0;
-            while (i < height) : (i += 1) {
-                var filled = decompressStream.read(current_row[filter_stride - 1 ..]) catch return error.InvalidData;
-                if (filled != line_bytes + 1) return error.EndOfStream;
-                try defilter(current_row, prev_row, filter_stride);
-                current_row[filter_stride - 1] = 0; // zero out the filter byte
+            if (header.interlace_method == .none) {
+                var i: u32 = 0;
+                while (i < height) : (i += 1) {
+                    var filled = decompressStream.read(current_row[filter_stride - 1 ..]) catch return error.InvalidData;
+                    if (filled != line_bytes + 1) return error.EndOfStream;
+                    try defilter(current_row, prev_row, filter_stride);
+                    current_row[filter_stride - 1] = 0; // zero out the filter byte
 
-                process_row_data.dest_row = dest[0..result_line_bytes];
-                dest = dest[result_line_bytes..];
+                    process_row_data.dest_row = dest[0..result_line_bytes];
+                    dest = dest[result_line_bytes..];
 
-                spreadRowData(process_row_data.dest_row, current_row[filter_stride..], header.bit_depth, channel_count, pixel_stride);
+                    spreadRowData(process_row_data.dest_row, current_row[filter_stride..], header.bit_depth, channel_count, pixel_stride);
 
-                var result_format = try processRow(options.processors, &process_row_data);
-                if (result_format != dest_format) return error.InvalidData;
+                    var result_format = try processRow(options.processors, &process_row_data);
+                    if (result_format != dest_format) return error.InvalidData;
 
-                var tmp = prev_row;
-                prev_row = current_row;
-                current_row = tmp;
+                    var tmp = prev_row;
+                    prev_row = current_row;
+                    current_row = tmp;
+                }
+            } else {
+                const start_x = [7]u8{ 0, 4, 0, 2, 0, 1, 0 };
+                const start_y = [7]u8{ 0, 0, 4, 0, 2, 0, 1 };
+                const xinc = [7]u8{ 8, 8, 4, 4, 2, 2, 1 };
+                const yinc = [7]u8{ 8, 8, 8, 4, 4, 2, 2 };
+                const pass_width = [7]u32{
+                    (width + 7) / 8,
+                    (width + 3) / 8,
+                    (width + 3) / 4,
+                    (width + 1) / 4,
+                    (width + 1) / 2,
+                    width / 2,
+                    width,
+                };
+                const pass_height = [7]u32{
+                    (height + 7) / 8,
+                    (height + 7) / 8,
+                    (height + 3) / 8,
+                    (height + 3) / 4,
+                    (height + 1) / 4,
+                    (height + 1) / 2,
+                    height / 2,
+                };
+                const pixel_bits = header.pixelBits();
+                const deinterlace_bit_depth: u8 = if (header.bit_depth <= 8) 8 else 16;
+                var dest_row = tmp_buffer[virtual_line_bytes * 2 ..];
+
+                var pass: u32 = 0;
+                while (pass < 7) : (pass += 1) {
+                    var y: u32 = 0;
+                    const pass_bytes = (pixel_bits * pass_width[pass] + 7) / 8;
+                    const pass_length = pass_bytes + filter_stride;
+                    const result_pass_line_bytes = pixel_stride * pass_width[pass];
+                    const deinterlace_stride = xinc[pass] * pixel_stride;
+                    mem.set(u8, prev_row, 0);
+                    var destx = start_x[pass] * pixel_stride;
+                    var desty = start_y[pass];
+                    while (y < pass_height[pass]) : (y += 1) {
+                        var filled = decompressStream.read(current_row[filter_stride - 1 .. pass_length]) catch return error.InvalidData;
+                        if (filled != pass_bytes + 1) return error.EndOfStream;
+                        try defilter(current_row[0..pass_length], prev_row[0..pass_length], filter_stride);
+                        current_row[filter_stride - 1] = 0; // zero out the filter byte
+
+                        process_row_data.dest_row = dest_row[0..result_pass_line_bytes];
+
+                        spreadRowData(process_row_data.dest_row, current_row[filter_stride..], header.bit_depth, channel_count, pixel_stride);
+
+                        var result_format = try processRow(options.processors, &process_row_data);
+                        if (result_format != dest_format) return error.InvalidData;
+
+                        const start_byte = desty * result_line_bytes + destx;
+                        const end_byte = start_byte + result_pass_line_bytes;
+                        spreadRowData(dest[start_byte..end_byte], process_row_data.dest_row, deinterlace_bit_depth, channel_count, deinterlace_stride);
+
+                        desty += yinc[pass];
+
+                        var tmp = prev_row;
+                        prev_row = current_row;
+                        current_row = tmp;
+                    }
+                }
             }
 
             return result;
