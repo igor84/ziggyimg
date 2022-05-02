@@ -130,25 +130,37 @@ fn Reader(comptime is_from_file: bool) type {
             return header.*;
         }
 
+        /// Loads the png image using the given allocator and options.
+        /// The options allow you to pass in a custom allocator for temporary allocations.
+        /// By default it will use a fixed buffer on stack for temporary allocations.
+        /// You can also pass in a custom array of chunk processors. By default empty array
+        /// will mean you want a set of default processors which at the moment are:
+        /// 1. tRNS processor that decodes the tRNS chunk if it exists into an alpha channel
+        /// 2. PLTE processor that decodes the indexed image with a palette into RGB image.
+        /// If you really don't want any processing pass in the `no_processors` in processors array.
         pub fn load(self: *Self, allocator: Allocator, options: ReaderOptions) ImageParsingError!void {
             var header = try self.loadHeader();
             try self.loadWithHeader(&header, allocator, options);
         }
 
-        fn asU32(str: *const [4:0]u8) u32 {
-            return std.mem.bytesToValue(u32, str);
-        }
-
+        /// Loads the png image for which the header has already been loaded.
+        /// For options param description look at the load method docs.
         pub fn loadWithHeader(
             self: *Self,
             header: *const png.HeaderData,
             allocator: Allocator,
             options: ReaderOptions,
         ) ImageParsingError!void {
+            var opts = options;
+            // Empty processors array means you want to use defualt processors.
+            if (options.processors.len == 0) {
+                var trnsProcessor = TrnsProcessor{};
+                opts.processors = &.{trnsProcessor.processor()};
+            }
             if (options.temp_allocator != null) {
-                try doLoad(self, header, allocator, &options);
+                try doLoad(self, header, allocator, &opts);
             } else {
-                try prepareTmpAllocatorAndLoad(self, header, allocator, &options);
+                try prepareTmpAllocatorAndLoad(self, header, allocator, &opts);
             }
         }
 
@@ -164,6 +176,10 @@ fn Reader(comptime is_from_file: bool) type {
             var new_options = options.*;
             new_options.temp_allocator = std.heap.FixedBufferAllocator.init(tmp_buffer[0..]).allocator();
             try doLoad(self, header, allocator, &new_options);
+        }
+
+        fn asU32(str: *const [4:0]u8) u32 {
+            return std.mem.bytesToValue(u32, str);
         }
 
         fn doLoad(
@@ -643,11 +659,14 @@ pub const ReaderOptions = struct {
     /// they are bounded. They will be allocated after the destination image to
     /// reduce memory fragmentation and freed internally.
     temp_allocator: ?Allocator = null,
-    processors: []ReaderProcessor = def_processors[0..], // TODO: Can this be an array of pointers and should it
+
+    // We need default to be no processors so they are not even compiled in if not used
+    // and we need to instantiate them only if they are used.
+    processors: []ReaderProcessor = &[_]ReaderProcessor{},
 };
 
-var def_trns_processor: TrnsProcessor = .{};
-var def_processors = [_]ReaderProcessor{def_trns_processor.processor()};
+var no_processors_array = [_]ReaderProcessor{.{ .id = 0, .context = undefined, .vtable = undefined }};
+pub var no_processors = no_processors_array[0..];
 
 // ********************* TESTS *********************
 
