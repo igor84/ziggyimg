@@ -9,6 +9,8 @@ pub const ImageReadError = error{ EndOfStream, SeekError } || std.os.ReadError;
 pub const ImageReader = union(enum) {
     buffer: BufferReader,
     file: FileReader,
+    bufferp: *BufferReader,
+    filep: *FileReader,
 
     const Self = @This();
 
@@ -21,8 +23,8 @@ pub const ImageReader = union(enum) {
     }
 
     pub fn wrap(file_or_buffer: anytype) Self {
-        if (@TypeOf(file_or_buffer) == FileReader) return .{ .file = file_or_buffer };
-        if (@TypeOf(file_or_buffer) == BufferReader) return .{ .buffer = file_or_buffer };
+        if (@TypeOf(file_or_buffer) == *FileReader) return .{ .filep = file_or_buffer };
+        if (@TypeOf(file_or_buffer) == *BufferReader) return .{ .bufferp = file_or_buffer };
         @compileError("ImageReader can only wrap FileReader and BufferReader");
     }
 
@@ -30,6 +32,8 @@ pub const ImageReader = union(enum) {
         switch (self.*) {
             .buffer => |*b| return b.readNoAlloc(size),
             .file => |*f| return f.readNoAlloc(size),
+            .bufferp => |b| return b.readNoAlloc(size),
+            .filep => |f| return f.readNoAlloc(size),
         }
     }
 
@@ -37,6 +41,8 @@ pub const ImageReader = union(enum) {
         switch (self.*) {
             .buffer => |*b| return b.read(buf),
             .file => |*f| return f.read(buf),
+            .bufferp => |b| return b.read(buf),
+            .filep => |f| return f.read(buf),
         }
     }
 
@@ -44,6 +50,8 @@ pub const ImageReader = union(enum) {
         switch (self.*) {
             .buffer => |*b| return b.readStruct(T),
             .file => |*f| return f.readStruct(T),
+            .bufferp => |b| return b.readStruct(T),
+            .filep => |f| return f.readStruct(T),
         }
     }
 
@@ -51,6 +59,8 @@ pub const ImageReader = union(enum) {
         switch (self.*) {
             .buffer => |*b| return b.readInt(T),
             .file => |*f| return f.readInt(T),
+            .bufferp => |b| return b.readInt(T),
+            .filep => |f| return f.readInt(T),
         }
     }
 
@@ -58,6 +68,8 @@ pub const ImageReader = union(enum) {
         switch (self.*) {
             .buffer => |*b| return b.readIntBig(T),
             .file => |*f| return f.readIntBig(T),
+            .bufferp => |b| return b.readIntBig(T),
+            .filep => |f| return f.readIntBig(T),
         }
     }
 
@@ -65,6 +77,8 @@ pub const ImageReader = union(enum) {
         switch (self.*) {
             .buffer => |*b| return b.readIntLittle(T),
             .file => |*f| return f.readIntLittle(T),
+            .bufferp => |b| return b.readIntLittle(T),
+            .filep => |f| return f.readIntLittle(T),
         }
     }
 
@@ -72,6 +86,8 @@ pub const ImageReader = union(enum) {
         switch (self.*) {
             .buffer => |*b| return b.seekBy(amt),
             .file => |*f| return f.seekBy(amt),
+            .bufferp => |b| return b.seekBy(amt),
+            .filep => |f| return f.seekBy(amt),
         }
     }
 };
