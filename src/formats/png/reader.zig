@@ -37,12 +37,26 @@ fn Reader(comptime is_from_file: bool) type {
 
     const Common = struct {
         pub fn processChunk(processors: []ReaderProcessor, id: u32, chunk_process_data: *ChunkProcessData) ImageParsingError!void {
+            var l = id & 0xff;
+            // Critical chunks are already processed but we can still notify any number of processors about them
+            var processed = l >= 'A' and l <= 'Z';
             for (processors) |*processor| {
                 if (processor.id == id) {
                     var new_format = try processor.processChunk(chunk_process_data);
                     std.debug.assert(new_format.getPixelStride() >= chunk_process_data.current_format.getPixelStride());
                     chunk_process_data.current_format = new_format;
+                    if (!processed) {
+                        // For non critical chunks we only allow one processor so we break after the first one
+                        processed = true;
+                        break;
+                    }
                 }
+            }
+
+            // If noone loaded this chunk we need to skip over it
+            if (!processed) {
+                _ = try chunk_process_data.raw_reader.readNoAlloc(chunk_process_data.chunk_length + 4);
+                // TODO: make sure to read even big chunks that don't fit into buffer
             }
         }
     };
@@ -61,24 +75,26 @@ fn Reader(comptime is_from_file: bool) type {
             processors: []ReaderProcessor,
             chunk_process_data: *ChunkProcessData,
         ) Self {
+            var crc = Crc32.init();
+            crc.update("IDAT");
             return .{
                 .raw_reader = reader,
                 .processors = processors,
                 .chunk_process_data = chunk_process_data,
-                .crc = Crc32.init(),
+                .crc = crc,
             };
         }
 
         fn read(self: *Self, dest: []u8) ImageParsingError!usize {
-            if (self.chunk_process_data.chunk_length == 0) return 0;
-            var new_dest = dest;
-
             var chunk_length = self.chunk_process_data.chunk_length;
+
+            if (chunk_length == 0) return 0;
+            var new_dest = dest;
 
             var to_read = new_dest.len;
             if (to_read > chunk_length) to_read = chunk_length;
             var read_count = try self.raw_reader.read(new_dest[0..to_read]);
-            self.chunk_process_data.chunk_length -= @intCast(u32, read_count);
+            chunk_length -= @intCast(u32, read_count);
             self.crc.update(new_dest[0..read_count]);
 
             if (chunk_length == 0) {
@@ -89,16 +105,19 @@ fn Reader(comptime is_from_file: bool) type {
                 try Common.processChunk(self.processors, png.HeaderData.chunk_type_id, self.chunk_process_data);
 
                 self.crc = Crc32.init();
+                self.crc.update("IDAT");
 
                 // Try to load the next IDAT chunk
                 var chunk = try self.raw_reader.readStruct(png.ChunkHeader);
-                if (chunk.type == png.HeaderData.chunk_type_id) {
-                    self.chunk_process_data.chunk_length = chunk.length();
+                if (chunk.type == std.mem.bytesToValue(u32, "IDAT")) {
+                    chunk_length = chunk.length();
                 } else {
                     // Return to the start of the next chunk so code in main struct can read it
                     try self.raw_reader.seekBy(-@sizeOf(png.ChunkHeader));
                 }
             }
+
+            self.chunk_process_data.chunk_length = chunk_length;
 
             return read_count;
         }
@@ -124,7 +143,10 @@ fn Reader(comptime is_from_file: bool) type {
             if (!header.isValid()) return error.InvalidData;
 
             var expected_crc = try self.raw_reader.readIntBig(u32);
-            var actual_crc = Crc32.hash(mem.asBytes(header));
+            var crc = Crc32.init();
+            crc.update(png.HeaderData.chunk_type);
+            crc.update(mem.asBytes(header));
+            var actual_crc = crc.final();
             if (expected_crc != actual_crc) return error.InvalidData;
 
             return header.*;
@@ -169,9 +191,10 @@ fn Reader(comptime is_from_file: bool) type {
             allocator: Allocator,
             options: *const ReaderOptions,
         ) ImageParsingError!PixelStorage {
-            // decompressor.zig:294 claims to use 300KiB at most from provided allocator.
-            // Original zlib claims it only needs 44KiB so next task is to rewrite zig zlib :).
-            var tmp_buffer: [500 * 1024]u8 = undefined;
+            // decompressor.zig:294 claims to use up to 300KiB from provided allocator but when
+            // testing with huge png file it used 760KiB.
+            // Original zlib claims it only needs 44KiB so next task is to rewrite zig's zlib :).
+            var tmp_buffer: [800 * 1024]u8 = undefined;
             var new_options = options.*;
             new_options.temp_allocator = std.heap.FixedBufferAllocator.init(tmp_buffer[0..]).allocator();
             return try doLoad(self, header, allocator, &new_options);
@@ -192,7 +215,7 @@ fn Reader(comptime is_from_file: bool) type {
             var result: PixelStorage = undefined;
 
             var chunk_process_data = ChunkProcessData{
-                .raw_reader = ImageReader.wrap(self.raw_reader),
+                .raw_reader = ImageReader.wrap(&self.raw_reader),
                 .chunk_length = @sizeOf(png.HeaderData),
                 .current_format = header.getPixelFormat(),
                 .header = header,
@@ -243,7 +266,10 @@ fn Reader(comptime is_from_file: bool) type {
                             }
 
                             var expected_crc = try self.raw_reader.readIntBig(u32);
-                            var actual_crc = Crc32.hash(mem.sliceAsBytes(palette));
+                            var crc = Crc32.init();
+                            crc.update("PLTE");
+                            crc.update(mem.sliceAsBytes(palette));
+                            var actual_crc = crc.final();
                             if (expected_crc != actual_crc) return error.InvalidData;
                             chunk_process_data.chunk_length = chunk_length;
                             try Common.processChunk(options.processors, chunk.type, &chunk_process_data);
@@ -265,11 +291,14 @@ fn Reader(comptime is_from_file: bool) type {
             options: *const ReaderOptions,
             chunk_process_data: *ChunkProcessData,
         ) ImageParsingError!PixelStorage {
-            var dest_format = chunk_process_data.current_format;
+            const native_endian = comptime @import("builtin").cpu.arch.endian();
+            const is_little_endian = native_endian == .Little;
             const width = header.width();
             const height = header.height();
             const channel_count = header.channelCount();
+            var dest_format = chunk_process_data.current_format;
             var result = try PixelStorage.init(allocator, dest_format, width * height);
+            errdefer result.deinit(allocator);
             var idat_chunks_reader = IDatChunksReader.init(&self.raw_reader, options.processors, chunk_process_data);
             var idat_reader: IDATReader = .{ .context = &idat_chunks_reader };
             var decompressStream = std.compress.zlib.zlibStream(options.temp_allocator.?, idat_reader) catch return error.InvalidData;
@@ -287,13 +316,16 @@ fn Reader(comptime is_from_file: bool) type {
             const filter_stride = (header.bit_depth + 7) / 8 * channel_count; // 1 to 8 bytes
             const line_bytes = header.lineBytes();
             const virtual_line_bytes = line_bytes + filter_stride;
-            const number_of_tmp_lines: u8 = if (header.interlace_method == .none) 2 else 3;
-            var tmp_buffer = try allocator.alloc(u8, number_of_tmp_lines * virtual_line_bytes);
-            defer allocator.free(tmp_buffer);
+            const result_line_bytes = @intCast(u32, dest.len / height);
+            var tmpbytes = 2 * virtual_line_bytes;
+            // For deinterlacing we also need one temporary row of resulting pixels
+            if (header.interlace_method == .adam7) tmpbytes += result_line_bytes;
+            var tmp_allocator = if (tmpbytes < 128 * 1024) options.temp_allocator.? else allocator;
+            var tmp_buffer = try tmp_allocator.alloc(u8, tmpbytes);
+            defer tmp_allocator.free(tmp_buffer);
             mem.set(u8, tmp_buffer, 0);
             var prev_row = tmp_buffer[0..virtual_line_bytes];
             var current_row = tmp_buffer[virtual_line_bytes .. 2 * virtual_line_bytes];
-            const result_line_bytes = @intCast(u32, dest.len / height);
             const pixel_stride = @intCast(u8, result_line_bytes / width);
             std.debug.assert(pixel_stride == dest_format.getPixelStride());
 
@@ -308,15 +340,26 @@ fn Reader(comptime is_from_file: bool) type {
             if (header.interlace_method == .none) {
                 var i: u32 = 0;
                 while (i < height) : (i += 1) {
-                    var filled = decompressStream.read(current_row[filter_stride - 1 ..]) catch return error.InvalidData;
+                    var loaded = decompressStream.read(current_row[filter_stride - 1 ..]) catch return error.InvalidData;
+                    var filled = loaded;
+                    while (loaded > 0 and filled != line_bytes + 1) {
+                        loaded = decompressStream.read(current_row[filter_stride - 1 + filled ..]) catch return error.InvalidData;
+                        filled += loaded;
+                    }
                     if (filled != line_bytes + 1) return error.EndOfStream;
                     try defilter(current_row, prev_row, filter_stride);
-                    current_row[filter_stride - 1] = 0; // zero out the filter byte
 
                     process_row_data.dest_row = dest[0..result_line_bytes];
                     dest = dest[result_line_bytes..];
 
-                    spreadRowData(process_row_data.dest_row, current_row[filter_stride..], header.bit_depth, channel_count, pixel_stride);
+                    spreadRowData(
+                        process_row_data.dest_row,
+                        current_row[filter_stride..],
+                        header.bit_depth,
+                        channel_count,
+                        pixel_stride,
+                        is_little_endian,
+                    );
 
                     var result_format = try processRow(options.processors, &process_row_data);
                     if (result_format != dest_format) return error.InvalidData;
@@ -354,6 +397,7 @@ fn Reader(comptime is_from_file: bool) type {
 
                 var pass: u32 = 0;
                 while (pass < 7) : (pass += 1) {
+                    if (pass_width[pass] == 0 or pass_height[pass] == 0) continue;
                     var y: u32 = 0;
                     const pass_bytes = (pixel_bits * pass_width[pass] + 7) / 8;
                     const pass_length = pass_bytes + filter_stride;
@@ -363,21 +407,40 @@ fn Reader(comptime is_from_file: bool) type {
                     var destx = start_x[pass] * pixel_stride;
                     var desty = start_y[pass];
                     while (y < pass_height[pass]) : (y += 1) {
-                        var filled = decompressStream.read(current_row[filter_stride - 1 .. pass_length]) catch return error.InvalidData;
+                        var loaded = decompressStream.read(current_row[filter_stride - 1 .. pass_length]) catch return error.InvalidData;
+                        var filled = loaded;
+                        while (loaded > 0 and filled != pass_bytes + 1) {
+                            loaded = decompressStream.read(current_row[filter_stride - 1 + filled ..]) catch return error.InvalidData;
+                            filled += loaded;
+                        }
                         if (filled != pass_bytes + 1) return error.EndOfStream;
                         try defilter(current_row[0..pass_length], prev_row[0..pass_length], filter_stride);
-                        current_row[filter_stride - 1] = 0; // zero out the filter byte
 
                         process_row_data.dest_row = dest_row[0..result_pass_line_bytes];
 
-                        spreadRowData(process_row_data.dest_row, current_row[filter_stride..], header.bit_depth, channel_count, pixel_stride);
+                        spreadRowData(
+                            process_row_data.dest_row,
+                            current_row[filter_stride..],
+                            header.bit_depth,
+                            channel_count,
+                            pixel_stride,
+                            false,
+                        );
 
                         var result_format = try processRow(options.processors, &process_row_data);
                         if (result_format != dest_format) return error.InvalidData;
 
-                        const start_byte = desty * result_line_bytes + destx;
-                        const end_byte = start_byte + result_pass_line_bytes;
-                        spreadRowData(dest[start_byte..end_byte], process_row_data.dest_row, deinterlace_bit_depth, channel_count, deinterlace_stride);
+                        const line_start_adr = desty * result_line_bytes;
+                        const start_byte = line_start_adr + destx;
+                        const end_byte = line_start_adr + result_line_bytes;
+                        spreadRowData(
+                            dest[start_byte..end_byte],
+                            process_row_data.dest_row,
+                            deinterlace_bit_depth,
+                            channel_count,
+                            deinterlace_stride,
+                            is_little_endian,
+                        );
 
                         desty += yinc[pass];
 
@@ -387,6 +450,15 @@ fn Reader(comptime is_from_file: bool) type {
                     }
                 }
             }
+
+            if (chunk_process_data.chunk_length > 0) {
+                // Just make sure zip stream gets to its end
+                var buf: [8]u8 = undefined;
+                _ = decompressStream.read(buf[0..]) catch return error.InvalidData;
+            }
+
+            // Assert that the last IDAT chunk is read to the end
+            std.debug.assert(chunk_process_data.chunk_length == 0);
 
             return result;
         }
@@ -408,28 +480,28 @@ fn Reader(comptime is_from_file: bool) type {
             switch (filter) {
                 .none => {},
                 .sub => while (x < current_row.len) : (x += 1) {
-                    current_row[x] += current_row[x - filter_stride];
+                    current_row[x] +%= current_row[x - filter_stride];
                 },
                 .up => while (x < current_row.len) : (x += 1) {
-                    current_row[x] += prev_row[x];
+                    current_row[x] +%= prev_row[x];
                 },
                 .average => while (x < current_row.len) : (x += 1) {
-                    current_row[x] += (current_row[x - filter_stride] + prev_row[x]) / 2;
+                    current_row[x] +%= @truncate(u8, (@intCast(u32, current_row[x - filter_stride]) + @intCast(u32, prev_row[x])) / 2);
                 },
                 .paeth => while (x < current_row.len) : (x += 1) {
                     const a = current_row[x - filter_stride];
                     const b = prev_row[x];
                     const c = prev_row[x - filter_stride];
-                    var pa: i32 = b - c;
-                    var pb: i32 = a - c;
+                    var pa: i32 = @intCast(i32, b) - c;
+                    var pb: i32 = @intCast(i32, a) - c;
                     var pc: i32 = pa + pb;
                     if (pa < 0) pa = -pa;
                     if (pb < 0) pb = -pb;
                     if (pc < 0) pc = -pc;
                     // zig fmt: off
-                    current_row[x] += if (pa <= pb and pa <= pc) @truncate(u8, a)
-                                     else if (pb <= pc) @truncate(u8, b)
-                                     else @truncate(u8, c);
+                    current_row[x] +%= if (pa <= pb and pa <= pc) a
+                                       else if (pb <= pc) b
+                                       else c;
                     // zig fmt: on
                 },
             }
@@ -441,6 +513,7 @@ fn Reader(comptime is_from_file: bool) type {
             bit_depth: u8,
             channel_count: u8,
             pixel_stride: u8,
+            comptime byteswap: bool,
         ) void {
             var pix: u32 = 0;
             var src_pix: u32 = 0;
@@ -476,7 +549,8 @@ fn Reader(comptime is_from_file: bool) type {
                     while (pix < dest_row16.len) : (pix += pixel_stride16) {
                         var c: u32 = 0;
                         while (c < channel_count) : (c += 1) {
-                            dest_row16[pix + c] = current_row16[src_pix + c];
+                            // This is a comptime if so it is not executed in every loop
+                            dest_row16[pix + c] = if (byteswap) @byteSwap(u16, current_row16[src_pix + c]) else current_row16[src_pix + c];
                         }
                         src_pix += channel_count;
                     }
@@ -486,11 +560,13 @@ fn Reader(comptime is_from_file: bool) type {
         }
 
         fn processRow(processors: []ReaderProcessor, process_data: *RowProcessData) ImageParsingError!PixelFormat {
-            var result_format = process_data.src_format;
+            const starting_format = process_data.src_format;
+            var result_format = starting_format;
             for (processors) |*processor| {
                 result_format = try processor.processDataRow(process_data);
                 process_data.src_format = result_format;
             }
+            process_data.src_format = starting_format;
             return result_format;
         }
     };
@@ -652,6 +728,7 @@ pub const TrnsProcessor = struct {
                     data.palette[i].a = color.toF32Color(alpha);
                 }
             },
+            .unset => return,
             else => unreachable,
         }
     }
@@ -737,7 +814,7 @@ pub var no_processors = no_processors_array[0..];
 const expectError = std.testing.expectError;
 
 const valid_header_buf = png.magic_header ++ "\x00\x00\x00\x0d" ++ png.HeaderData.chunk_type ++
-    "\x00\x00\x00\xff\x00\x00\x00\x75\x08\x06\x00\x00\x01\xd7\xc0\x29\x6f";
+    "\x00\x00\x00\xff\x00\x00\x00\x75\x08\x06\x00\x00\x01\xf6\x24\x07\xe2";
 
 test "testDefilter" {
     var buffer = [_]u8{ 0, 1, 2, 3, 0, 5, 6, 7 };
@@ -783,45 +860,45 @@ test "spreadRowData" {
     var pixel_stride: u8 = 1;
     const expectEqualSlices = std.testing.expectEqualSlices;
 
-    BufferReader.spreadRowData(dest_row, current_row[filter_stride..], bit_depth, channel_count, pixel_stride);
+    BufferReader.spreadRowData(dest_row, current_row[filter_stride..], bit_depth, channel_count, pixel_stride, false);
     try expectEqualSlices(u8, &[_]u8{ 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 0 }, dest_row);
     dest_row = dest_buffer[0..32];
     pixel_stride = 2;
     std.mem.set(u8, dest_row, 0);
-    BufferReader.spreadRowData(dest_row, current_row[filter_stride..], bit_depth, channel_count, pixel_stride);
+    BufferReader.spreadRowData(dest_row, current_row[filter_stride..], bit_depth, channel_count, pixel_stride, false);
     try expectEqualSlices(u8, &[_]u8{ 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0 }, dest_row);
 
     bit_depth = 2;
     pixel_stride = 1;
     dest_row = dest_buffer[0..8];
-    BufferReader.spreadRowData(dest_row, current_row[filter_stride..], bit_depth, channel_count, pixel_stride);
+    BufferReader.spreadRowData(dest_row, current_row[filter_stride..], bit_depth, channel_count, pixel_stride, false);
     try expectEqualSlices(u8, &[_]u8{ 2, 2, 1, 1, 1, 3, 3, 0 }, dest_row);
     dest_row = dest_buffer[0..16];
     pixel_stride = 2;
     std.mem.set(u8, dest_row, 0);
-    BufferReader.spreadRowData(dest_row, current_row[filter_stride..], bit_depth, channel_count, pixel_stride);
+    BufferReader.spreadRowData(dest_row, current_row[filter_stride..], bit_depth, channel_count, pixel_stride, false);
     try expectEqualSlices(u8, &[_]u8{ 2, 0, 2, 0, 1, 0, 1, 0, 1, 0, 3, 0, 3, 0, 0, 0 }, dest_row);
 
     bit_depth = 4;
     pixel_stride = 1;
     dest_row = dest_buffer[0..4];
-    BufferReader.spreadRowData(dest_row, current_row[filter_stride..], bit_depth, channel_count, pixel_stride);
+    BufferReader.spreadRowData(dest_row, current_row[filter_stride..], bit_depth, channel_count, pixel_stride, false);
     try expectEqualSlices(u8, &[_]u8{ 0xa, 0x5, 0x7, 0xc }, dest_row);
     dest_row = dest_buffer[0..8];
     pixel_stride = 2;
     std.mem.set(u8, dest_row, 0);
-    BufferReader.spreadRowData(dest_row, current_row[filter_stride..], bit_depth, channel_count, pixel_stride);
+    BufferReader.spreadRowData(dest_row, current_row[filter_stride..], bit_depth, channel_count, pixel_stride, false);
     try expectEqualSlices(u8, &[_]u8{ 0xa, 0, 0x5, 0, 0x7, 0, 0xc, 0 }, dest_row);
 
     bit_depth = 8;
     pixel_stride = 1;
     dest_row = dest_buffer[0..2];
-    BufferReader.spreadRowData(dest_row, current_row[filter_stride..], bit_depth, channel_count, pixel_stride);
+    BufferReader.spreadRowData(dest_row, current_row[filter_stride..], bit_depth, channel_count, pixel_stride, false);
     try expectEqualSlices(u8, &[_]u8{ 0xa5, 0x7c }, dest_row);
     dest_row = dest_buffer[0..4];
     pixel_stride = 2;
     std.mem.set(u8, dest_row, 0);
-    BufferReader.spreadRowData(dest_row, current_row[filter_stride..], bit_depth, channel_count, pixel_stride);
+    BufferReader.spreadRowData(dest_row, current_row[filter_stride..], bit_depth, channel_count, pixel_stride, false);
     try expectEqualSlices(u8, &[_]u8{ 0xa5, 0, 0x7c, 0 }, dest_row);
 
     channel_count = 2; // grayscale_alpha
@@ -830,12 +907,12 @@ test "spreadRowData" {
     dest_row = dest_buffer[0..4];
     filter_stride = 2;
     pixel_stride = 2;
-    BufferReader.spreadRowData(dest_row, current_row[filter_stride..], bit_depth, channel_count, pixel_stride);
+    BufferReader.spreadRowData(dest_row, current_row[filter_stride..], bit_depth, channel_count, pixel_stride, false);
     try expectEqualSlices(u8, &[_]u8{ 0xa5, 0x7c, 0x39, 0xf2 }, dest_row);
     dest_row = dest_buffer[0..8];
     std.mem.set(u8, dest_row, 0);
     pixel_stride = 4;
-    BufferReader.spreadRowData(dest_row, current_row[filter_stride..], bit_depth, channel_count, pixel_stride);
+    BufferReader.spreadRowData(dest_row, current_row[filter_stride..], bit_depth, channel_count, pixel_stride, false);
     try expectEqualSlices(u8, &[_]u8{ 0xa5, 0x7c, 0, 0, 0x39, 0xf2, 0, 0 }, dest_row);
 
     bit_depth = 16;
@@ -843,8 +920,8 @@ test "spreadRowData" {
     dest_row = dest_buffer[0..8];
     filter_stride = 4;
     pixel_stride = 4;
-    BufferReader.spreadRowData(dest_row, current_row[filter_stride..], bit_depth, channel_count, pixel_stride);
-    try expectEqualSlices(u8, &[_]u8{ 0xa5, 0x7c, 0x39, 0xf2, 0x5b, 0x15, 0x78, 0xd1 }, dest_row);
+    BufferReader.spreadRowData(dest_row, current_row[filter_stride..], bit_depth, channel_count, pixel_stride, true);
+    try expectEqualSlices(u8, &[_]u8{ 0x7c, 0xa5, 0xf2, 0x39, 0x15, 0x5b, 0xd1, 0x78 }, dest_row);
 
     channel_count = 3;
     bit_depth = 8;
@@ -853,7 +930,7 @@ test "spreadRowData" {
     std.mem.set(u8, dest_row, 0);
     filter_stride = 3;
     pixel_stride = 4;
-    BufferReader.spreadRowData(dest_row, current_row[filter_stride..], bit_depth, channel_count, pixel_stride);
+    BufferReader.spreadRowData(dest_row, current_row[filter_stride..], bit_depth, channel_count, pixel_stride, false);
     try expectEqualSlices(u8, &[_]u8{ 0xa5, 0x7c, 0x39, 0, 0xf2, 0x5b, 0x15, 0 }, dest_row);
 
     channel_count = 4;
@@ -864,8 +941,8 @@ test "spreadRowData" {
     std.mem.set(u8, dest_row, 0);
     filter_stride = 8;
     pixel_stride = 8;
-    BufferReader.spreadRowData(dest_row, current_row[filter_stride..], bit_depth, channel_count, pixel_stride);
-    try expectEqualSlices(u8, &[_]u8{ 0xa5, 0x7c, 0x39, 0xf2, 0x5b, 0x15, 0x78, 0xd1 }, dest_row);
+    BufferReader.spreadRowData(dest_row, current_row[filter_stride..], bit_depth, channel_count, pixel_stride, true);
+    try expectEqualSlices(u8, &[_]u8{ 0x7c, 0xa5, 0xf2, 0x39, 0x15, 0x5b, 0xd1, 0x78 }, dest_row);
 }
 
 test "loadHeader_valid" {
@@ -943,4 +1020,69 @@ fn testHeaderWithInvalidValue(buf: []u8, pos: usize, val: u8) !void {
     var reader = fromMemory(buf[0..]);
     try expectError(error.InvalidData, reader.loadHeader());
     buf[pos] = orig;
+}
+
+test "official test suite" {
+    var testdir = std.fs.cwd().openDir("../ziggyimg_tests/fixtures/png/", .{ .access_sub_paths = false, .iterate = true, .no_follow = true }) catch null;
+    if (testdir) |*dir| {
+        defer dir.close();
+        var it = dir.iterate();
+        std.debug.print("\n", .{});
+        while (try it.next()) |entry| {
+            if (entry.kind != .File or !std.mem.eql(u8, std.fs.path.extension(entry.name), ".png")) continue;
+
+            std.debug.print("Testing file {s}\n", .{entry.name});
+            var tst_file = try dir.openFile(entry.name, .{ .mode = .read_only });
+            defer tst_file.close();
+            var reader = fromFile(tst_file);
+            if (entry.name[0] == 'x' and entry.name[2] != 't' and entry.name[2] != 's') {
+                try std.testing.expectError(error.InvalidData, reader.loadHeader());
+                continue;
+            }
+
+            var header = try reader.loadHeader();
+            if (entry.name[0] == 'x') {
+                try std.testing.expectError(error.InvalidData, reader.loadWithHeader(&header, std.testing.allocator, .{}));
+                continue;
+            }
+
+            var result = try reader.loadWithHeader(&header, std.testing.allocator, .{});
+            defer result.deinit(std.testing.allocator);
+            var result_bytes = result.pixelsAsBytes();
+            var md5_val = [_]u8{0} ** 16;
+            std.crypto.hash.Md5.hash(result_bytes, &md5_val, .{});
+
+            var tst_data_name: [13]u8 = undefined;
+            std.mem.copy(u8, tst_data_name[0..9], entry.name[0..9]);
+            std.mem.copy(u8, tst_data_name[9..12], "tsd");
+
+            // Read test data and check with it
+            if (dir.openFile(tst_data_name[0..12], .{ .mode = .read_only })) |tdata| {
+                defer tdata.close();
+                var treader = tdata.reader();
+                var expected_pixel_format = treader.readIntLittle(u32);
+                var expected_md5 = [_]u8{0} ** 16;
+                try treader.readNoEof(expected_md5[0..]);
+                try std.testing.expectEqual(expected_pixel_format, @enumToInt(result));
+                try std.testing.expectEqualSlices(u8, expected_md5[0..], md5_val[0..]);
+            } else |_| {
+                // If there is no test data assume test is correct and write it out
+                try writeTestData(dir, tst_data_name[0..12], &result, md5_val[0..]);
+            }
+
+            // Write Raw bytes
+            // std.mem.copy(u8, tst_data_name[9..13], "data");
+            // var rawoutput = try dir.createFile(tst_data_name[0..], .{});
+            // defer rawoutput.close();
+            // try rawoutput.writeAll(result_bytes);
+        }
+    }
+}
+
+fn writeTestData(dir: *std.fs.Dir, tst_data_name: []const u8, result: *PixelStorage, md5_val: []const u8) !void {
+    var toutput = try dir.createFile(tst_data_name, .{});
+    defer toutput.close();
+    var writer = toutput.writer();
+    try writer.writeIntLittle(u32, @enumToInt(result.*));
+    try writer.writeAll(md5_val);
 }

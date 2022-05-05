@@ -59,6 +59,10 @@ pub const ChunkHeader = packed struct {
     pub fn length(self: Self) u32 {
         return bigToNative(u32, self.length_big_endian);
     }
+
+    pub fn name(self: Self) []const u8 {
+        return std.mem.asBytes(&self.type);
+    }
 };
 
 pub const HeaderData = packed struct {
