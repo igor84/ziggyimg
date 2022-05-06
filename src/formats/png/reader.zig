@@ -55,8 +55,7 @@ fn Reader(comptime is_from_file: bool) type {
 
             // If noone loaded this chunk we need to skip over it
             if (!processed) {
-                _ = try chunk_process_data.raw_reader.readNoAlloc(chunk_process_data.chunk_length + 4);
-                // TODO: make sure to read even big chunks that don't fit into buffer
+                _ = try chunk_process_data.raw_reader.seekBy(@intCast(i64, chunk_process_data.chunk_length + 4));
             }
         }
     };

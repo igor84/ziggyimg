@@ -4,7 +4,7 @@ const Allocator = mem.Allocator;
 const builtin = std.builtin;
 const assert = std.debug.assert;
 
-pub const ImageReadError = error{ EndOfStream, SeekError } || std.os.ReadError;
+pub const ImageReadError = error{EndOfStream} || std.os.ReadError || std.os.SeekError;
 
 pub const ImageReader = union(enum) {
     buffer: BufferReader,
@@ -253,12 +253,23 @@ pub const FileReader = struct {
         if (amt < 0) {
             const abs_amt = std.math.absCast(amt);
             const abs_amt_usize = std.math.cast(usize, abs_amt) catch std.math.maxInt(usize);
-            self.pos -|= abs_amt_usize;
+            if (abs_amt_usize > self.pos) {
+                try self.file.seekBy(amt + @intCast(i64, self.pos));
+                self.pos = 0;
+                self.end = 0;
+            } else {
+                self.pos -= abs_amt_usize;
+            }
         } else {
             const amt_usize = std.math.cast(usize, amt) catch std.math.maxInt(usize);
             const new_pos = self.pos +| amt_usize;
-            if (new_pos > self.end) return error.SeekError;
-            self.pos = new_pos;
+            if (new_pos > self.end) {
+                try self.file.seekBy(@intCast(i64, new_pos - self.end));
+                self.pos = 0;
+                self.end = 0;
+            } else {
+                self.pos = new_pos;
+            }
         }
     }
 
