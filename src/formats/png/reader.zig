@@ -20,6 +20,31 @@ const RawBufferReader = imgio.BufferReader;
 pub const FileReader = Reader(true);
 pub const BufferReader = Reader(false);
 
+const ProfData = struct {
+    name: []const u8 = &[_]u8{},
+    count: u32 = 0,
+    dur: u64 = 0,
+};
+var prof_data_list = [_]ProfData{.{}} ** 113;
+
+// To measure some function just add these two lines to its start:
+// var timer = std.time.Timer.start() catch unreachable;
+// defer measure(@src().fn_name, timer.read());
+fn measure(comptime name: []const u8, dur: u64) void {
+    const index = Crc32.hash(name) % prof_data_list.len;
+    if (prof_data_list[index].name.len > 0 and prof_data_list[index].name[0] != name[0]) return;
+    prof_data_list[index].name = name;
+    prof_data_list[index].count += 1;
+    prof_data_list[index].dur += dur;
+}
+
+pub fn printProfData() void {
+    for (prof_data_list) |prof_data| {
+        if (prof_data.count == 0) continue;
+        std.debug.print("{s} => x{} {s}\n", .{ prof_data.name, prof_data.count, std.fmt.fmtDuration(prof_data.dur) });
+    }
+}
+
 pub fn fromFile(file: File) FileReader {
     return .{
         .raw_reader = RawFileReader.init(file),
@@ -1022,7 +1047,12 @@ fn testHeaderWithInvalidValue(buf: []u8, pos: usize, val: u8) !void {
 }
 
 test "official test suite" {
-    var testdir = std.fs.cwd().openDir("../ziggyimg_tests/fixtures/png/", .{ .access_sub_paths = false, .iterate = true, .no_follow = true }) catch null;
+    try testWithDir("../ziggyimg-tests/fixtures/png/");
+}
+
+// Useful to quickly test performance on full dir of images
+pub fn testWithDir(directory: []const u8) !void {
+    var testdir = std.fs.cwd().openDir(directory, .{ .access_sub_paths = false, .iterate = true, .no_follow = true }) catch null;
     if (testdir) |*dir| {
         defer dir.close();
         var it = dir.iterate();
