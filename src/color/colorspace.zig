@@ -51,6 +51,7 @@ pub const RGBColorSpace = struct {
         }
 
         var rgb_to_xyz = rgbToXyzMatrix(red, green, blue, white);
+        // TODO: Uncomment when it no longer crashes the compiler
         //var xyz_to_rgb = zmath.inverse(rgb_to_xyz);
         var xyz_to_rgb = rgb_to_xyz;
 
@@ -116,9 +117,9 @@ fn hybridGammaToLinear(
 
 /// RGB to XYZ color space transformation matrix.
 fn rgbToXyzMatrix(red: xyY, green: xyY, blue: xyY, white: xyY) Mat {
-    var r = red.toXYZ();
-    var g = green.toXYZ();
-    var b = blue.toXYZ();
+    const r = red.toXYZ();
+    const g = green.toXYZ();
+    const b = blue.toXYZ();
 
     // build a matrix from the 3 color vectors
     var m = Mat{
@@ -129,8 +130,9 @@ fn rgbToXyzMatrix(red: xyY, green: xyY, blue: xyY, white: xyY) Mat {
     };
 
     // multiply by the whitepoint
-    var wXYZ = white.toXYZ();
+    const wXYZ = white.toXYZ();
     var w = zmath.f32x4(wXYZ.X, wXYZ.Y, wXYZ.Z, 1);
+    // TODO: Uncomment when it no longer crashes the compiler
     //var s = zmath.mul(zmath.inverse(m), w);
     var s = zmath.mul(m, w);
 
@@ -264,7 +266,7 @@ test "getByName" {
 
 test "getByPoints" {
     for (rgbColorSpaces) |space| {
-        var fspace = getRGBColorSpaceByPoints(space.white, space.red.x, space.red.y, space.green.x, space.green.y, space.blue.x, space.blue.y);
+        const fspace = getRGBColorSpaceByPoints(space.white, space.red.x, space.red.y, space.green.x, space.green.y, space.blue.x, space.blue.y);
         if (space == &rec709) {
             // rec709 has same xy values as sRGB so it should match sRGB which has bigger priority
             try std.testing.expectEqualStrings(sRGB.id, fspace.?.id);

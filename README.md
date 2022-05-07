@@ -21,7 +21,6 @@ zig build test
 ```
 
 ## TODO
-- [ ] Review usage of var vs const
 - [ ] Consider having IndexedStorage with Rgba32 entries as well
 - [ ] Implement RGB deinterlacing
 - [ ] Implement RGB processor that converts palette to rgb

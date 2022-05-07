@@ -19,7 +19,7 @@ pub const XYZ = struct {
     }
 
     pub fn toxyY(self: XYZ) xyY {
-        var sum = self.X + self.Y + self.Z;
+        const sum = self.X + self.Y + self.Z;
         if (sum != 0) return xyY.init(self.X / sum, self.Y / sum, self.Y);
 
         return xyY.init(std_illuminant.D65.x, std_illuminant.D65.y, 0);
@@ -54,7 +54,7 @@ pub const xyY = struct {
     pub fn toXYZ(self: xyY) XYZ {
         if (self.Y == 0) return XYZ.init(0, 0, 0);
 
-        var ratio = self.Y / self.y;
+        const ratio = self.Y / self.y;
         return XYZ.init(ratio * self.x, self.Y, ratio * (1 - self.x - self.y));
     }
 
@@ -571,7 +571,7 @@ test "Illuminant values" {
 
 test "Illuminant getByName" {
     for (std_illuminant.names) |name, i| {
-        var val = std_illuminant.getByName(name).?;
+        const val = std_illuminant.getByName(name).?;
         try std.testing.expect(val.equal(std_illuminant.values[i]));
     }
     try std.testing.expect(std_illuminant.getByName("NA") == null);
@@ -579,14 +579,14 @@ test "Illuminant getByName" {
 
 test "Illuminant getName" {
     for (std_illuminant.values) |val, i| {
-        var name = std_illuminant.getName(val).?;
+        const name = std_illuminant.getName(val).?;
         try std.testing.expect(std.mem.eql(u8, name, std_illuminant.names[i]));
     }
     try std.testing.expect(std_illuminant.getName(xyY.init(1, 2, 3)) == null);
 }
 test "Test Colorf32" {
     const tst = std.testing;
-    var rgb = Colorf32.initRgb(0.2, 0.5, 0.7);
+    const rgb = Colorf32.initRgb(0.2, 0.5, 0.7);
     try tst.expectEqual(@as(f32, 0.2), rgb.r);
     try tst.expectEqual(@as(f32, 0.5), rgb.g);
     try tst.expectEqual(@as(f32, 0.7), rgb.b);
@@ -597,13 +597,13 @@ test "Test Colorf32" {
     try tst.expectEqual(@as(f32, 0.9), rgba.b);
     try tst.expectEqual(@as(f32, 0.7), rgba.a);
 
-    var rgba32 = rgba.toRgba32();
+    const rgba32 = rgba.toRgba32();
     try tst.expectEqual(@as(u32, 26), rgba32.r);
     try tst.expectEqual(@as(u32, 102), rgba32.g);
     try tst.expectEqual(@as(u32, 230), rgba32.b);
     try tst.expectEqual(@as(u32, 179), rgba32.a);
 
-    var rgba64 = rgba.toRgba64();
+    const rgba64 = rgba.toRgba64();
     try tst.expectEqual(@as(u64, 6554), rgba64.r);
     try tst.expectEqual(@as(u64, 26214), rgba64.g);
     try tst.expectEqual(@as(u64, 58982), rgba64.b);
@@ -670,12 +670,12 @@ fn testRgbType(comptime T: type, comptime testData: TestRgbData) !void {
     const tst = std.testing;
     var rgb = T.initRgb(testData.init[0], testData.init[1], testData.init[2]);
     try testRgb(rgb, @TypeOf(rgb.r), testData.expected);
-    var value = rgb.getValue();
+    const value = rgb.getValue();
     try tst.expectEqual(@as(@TypeOf(value), testData.expectedValue), value);
     rgb = T.fromValue(testData.setValue);
     try testRgb(rgb, @TypeOf(rgb.r), testData.expectedAfterValue);
 
-    var rgba = rgb.toColorf32();
+    const rgba = rgb.toColorf32();
     try testColor(rgba, f32, testData.expectedColor);
 }
 
@@ -757,12 +757,12 @@ fn testRgbaType(comptime T: type, comptime testData: TestRgbaData) !void {
     const tst = std.testing;
     var rgb = T.initRgba(testData.init[0], testData.init[1], testData.init[2], testData.init[3]);
     try testRgba(rgb, @TypeOf(rgb.r), testData.expected);
-    var value = rgb.getValue();
+    const value = rgb.getValue();
     try tst.expectEqual(@as(@TypeOf(value), testData.expectedValue), value);
     rgb = T.fromValue(testData.setValue);
     try testRgba(rgb, @TypeOf(rgb.r), testData.expectedAfterValue);
 
-    var rgba = rgb.toColorf32();
+    const rgba = rgb.toColorf32();
     try testColor(rgba, f32, testData.expectedColor);
 }
 

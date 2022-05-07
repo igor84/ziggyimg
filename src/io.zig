@@ -103,9 +103,9 @@ pub const BufferReader = struct {
     }
 
     pub fn readNoAlloc(self: *Self, size: usize) ImageReadError![]const u8 {
-        var end = self.pos + size;
+        const end = self.pos + size;
         if (end > self.buffer.len) return error.EndOfStream;
-        var res = self.buffer[self.pos..end];
+        const res = self.buffer[self.pos..end];
         self.pos = end;
         return res;
     }
@@ -126,9 +126,9 @@ pub const BufferReader = struct {
         // Only extern and packed structs have defined in-memory layout.
         comptime assert(@typeInfo(T).Struct.layout != std.builtin.TypeInfo.ContainerLayout.Auto);
         const size = @sizeOf(T);
-        var end = self.pos + size;
+        const end = self.pos + size;
         if (end > self.buffer.len) return error.EndOfStream;
-        var start = self.pos;
+        const start = self.pos;
         self.pos = end;
         return @ptrCast(*const T, self.buffer[start..end]);
     }
@@ -139,7 +139,7 @@ pub const BufferReader = struct {
         const size = @sizeOf(T);
         comptime assert(bitSize % 8 == 0 and bitSize / 8 == size); // This will not allow u24 as intended
         var result: T = undefined;
-        var read_size = try self.read(mem.asBytes(&result));
+        const read_size = try self.read(mem.asBytes(&result));
         if (read_size != size) return error.EndOfStream;
         return result;
     }
@@ -192,24 +192,24 @@ pub const FileReader = struct {
         var available = self.end - self.pos;
         if (available < size) {
             mem.copy(u8, self.buffer[0..available], self.buffer[self.pos..self.end]);
-            var read_size = try self.file.read(self.buffer[available..]);
+            const read_size = try self.file.read(self.buffer[available..]);
             self.pos = 0;
             available += read_size;
             self.end = available;
         }
         if (available < size) return error.EndOfStream;
 
-        var endPos = self.pos + size;
-        var result = self.buffer[self.pos..endPos];
+        const endPos = self.pos + size;
+        const result = self.buffer[self.pos..endPos];
         self.pos = endPos;
         return result;
     }
 
     pub fn read(self: *Self, buf: []u8) ImageReadError!usize {
-        var size = buf.len;
-        var available = self.end - self.pos;
+        const size = buf.len;
+        const available = self.end - self.pos;
         if (available >= size) {
-            var endPos = self.pos + size;
+            const endPos = self.pos + size;
             mem.copy(u8, buf[0..], self.buffer[self.pos..endPos]);
             self.pos = endPos;
             return size;
@@ -226,7 +226,7 @@ pub const FileReader = struct {
         comptime assert(@typeInfo(T).Struct.layout != std.builtin.TypeInfo.ContainerLayout.Auto);
         const size = @sizeOf(T);
         if (size > self.buffer.len) return error.EndOfStream;
-        var buf = try self.readNoAlloc(size);
+        const buf = try self.readNoAlloc(size);
         return @ptrCast(*const T, buf);
     }
 
@@ -236,7 +236,7 @@ pub const FileReader = struct {
         const size = @sizeOf(T);
         comptime assert(bit_size % 8 == 0 and bit_size / 8 == size); // This will not allow u24 as intended
         var result: T = undefined;
-        var read_size = try self.read(mem.asBytes(&result));
+        const read_size = try self.read(mem.asBytes(&result));
         if (read_size != size) return error.EndOfStream;
         return result;
     }
@@ -283,29 +283,29 @@ pub const FileReader = struct {
 // ********************* TESTS *********************
 
 test "FileReader" {
-    var cwd = std.fs.cwd();
+    const cwd = std.fs.cwd();
     try cwd.writeFile("test.tmp", "0123456789Abcdefghijklmnopqr0123456789");
     defer cwd.deleteFile("test.tmp") catch {};
-    var file = try cwd.openFile("test.tmp", .{ .mode = .read_only });
+    const file = try cwd.openFile("test.tmp", .{ .mode = .read_only });
     defer file.close();
     var reader = ImageReader.fromFile(file);
     try testReader(&reader);
 }
 
 test "BufferReader" {
-    var buffer = "0123456789Abcdefghijklmnopqr0123456789";
+    const buffer = "0123456789Abcdefghijklmnopqr0123456789";
     var reader = ImageReader.fromMemory(buffer[0..]);
     try testReader(&reader);
 }
 
 fn testReader(reader: *ImageReader) !void {
-    var array10 = try reader.readNoAlloc(10);
+    const array10 = try reader.readNoAlloc(10);
     try std.testing.expectEqualSlices(u8, "0123456789", array10);
     const TestStruct = packed struct {
         a: u32,
         b: [11]u8,
     };
-    var ts = try reader.readStruct(TestStruct);
+    const ts = try reader.readStruct(TestStruct);
     try std.testing.expectEqual(TestStruct{
         .a = 0x64636241,
         .b = .{ 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o' },
@@ -314,10 +314,10 @@ fn testReader(reader: *ImageReader) !void {
 
     var i: u32 = 0;
     while (i < 2) : (i += 1) {
-        var read_bytes = try reader.read(buf[0..]);
+        const read_bytes = try reader.read(buf[0..]);
         try std.testing.expectEqual(@as(usize, 8), read_bytes);
         try std.testing.expectEqualSlices(u8, "pqr01234", buf[0..8]);
-        var int = try reader.readIntBig(u32);
+        const int = try reader.readIntBig(u32);
         try std.testing.expectEqual(@as(u32, 0x35363738), int);
         try reader.seekBy(-@sizeOf(u32) - 8);
     }

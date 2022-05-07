@@ -15,7 +15,7 @@ pub fn main() !void {
 test {
     const std = @import("std");
     std.testing.refAllDecls(@This());
-    var tst_file = std.fs.cwd().openFile("ShouldNotExist.img", .{}) catch null;
+    const tst_file = std.fs.cwd().openFile("ShouldNotExist.img", .{}) catch null;
     if (tst_file) |file| {
         var reader = png_reader.fromFile(file);
         _ = try reader.load(std.testing.allocator, .{});

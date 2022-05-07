@@ -89,8 +89,8 @@ pub const HeaderData = packed struct {
 
     pub fn isValid(self: *const Self) bool {
         const max_dim = std.math.maxInt(u32) >> 1;
-        var w = self.width();
-        var h = self.height();
+        const w = self.width();
+        const h = self.height();
         if (w == 0 or w > max_dim) return false;
         if (h == 0 or h > max_dim) return false;
         if (!utils.isEnumValid(self.color_type)) return false;
@@ -98,7 +98,7 @@ pub const HeaderData = packed struct {
         if (!utils.isEnumValid(self.filter_method)) return false;
         if (!utils.isEnumValid(self.interlace_method)) return false;
 
-        var bd = self.bit_depth;
+        const bd = self.bit_depth;
         return switch (self.color_type) {
             .grayscale => bd == 1 or bd == 2 or bd == 4 or bd == 8 or bd == 16,
             .indexed => bd == 1 or bd == 2 or bd == 4 or bd == 8,
