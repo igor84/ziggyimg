@@ -1,24 +1,27 @@
 // ==============================================================================
 //
-// zmath lib 0.2
-// Fast, multi-platform, SIMD math library for game developers
-// https://github.com/michal-z/zig-gamedev/blob/main/libs/common/zmath.zig
+// zmath - version 0.3
+// SIMD math library for game developers
+// https://github.com/michal-z/zig-gamedev/tree/main/libs/zmath
 //
-// zmath uses row-major matrices, row vectors (each row vector is stored in SIMD register).
+// Should work on all OSes supported by Zig. Works on x86_64 and ARM.
+// Provides ~140 optimized routines and ~70 extensive tests.
+// Can be used with any graphics API.
+//
+// zmath uses row-major matrices, row vectors (each row vector is stored in a SIMD register).
 // Handedness is determined by which function version is used (Rh vs. Lh),
 // otherwise the function works with either left-handed or right-handed view coordinates.
 //
 // const va = f32x4(1.0, 2.0, 3.0, 1.0);
 // const vb = f32x4(-1.0, 1.0, -1.0, 1.0);
 // const v0 = va + vb - f32x4(0.0, 1.0, 0.0, 1.0) * f32x4s(3.0);
-// const v1 = cross(va, vb) + f32x4(1.0, 1.0, 1.0, 1.0);
+// const v1 = cross3(va, vb) + f32x4(1.0, 1.0, 1.0, 1.0);
 // const v2 = va + dot3(va, vb) / v1; // dotN() returns scalar replicated on all vector components
 //
 // const m = rotationX(math.pi * 0.25);
 // const v = f32x4(...);
-// const v0 = mul(v, m); // 'v' treated as row vector
-// const v1 = mul(m, v); // 'v' treated as column vector
-// mul(v, m) == mul(transpose(m), v)
+// const v0 = mul(v, m); // 'v' treated as a row vector
+// const v1 = mul(m, v); // 'v' treated as a column vector
 // const f = m[row][column];
 //
 // const b = va < vb;
@@ -31,13 +34,15 @@
 // var v8 = load(mem[100..], F32x8, 0);
 // var v16 = load(mem[200..], F32x16, 0);
 //
-// v4 = sin(v4);
-// v8 = cos(v8);
-// v16 = atan(v16);
+// v4 = sin(v4); // SIMDx4
+// v8 = cos(v8); // .x86_64 -> 2 x SIMDx4, .x86_64+avx+fma -> SIMDx8
+// v16 = atan(v16); // .x86_64 -> 4 x SIMDx4, .x86_64+avx+fma -> 2 x SIMDx8, .x86_64+avx512f -> SIMDx16
 //
 // store(mem[0..], v4, 0);
 // store(mem[100..], v8, 0);
 // store(mem[200..], v16, 0);
+//
+// Example programs: https://github.com/michal-z/zig-gamedev/tree/main/samples/intro
 //
 // ------------------------------------------------------------------------------
 // 1. Initialization functions
@@ -63,13 +68,14 @@
 //         e8: bool, e9: bool, ea: bool, eb: bool, ec: bool, ed: bool, ee: bool, ef: bool) Boolx16
 //
 // load(mem: []const f32, comptime T: type, comptime len: u32) T
-// loadF32x4x4(mem: []const f32) Mat
 // store(mem: []f32, v: anytype, comptime len: u32) void
-// storeF32x4x4(mem: []f32, m: Mat) void
 //
 // splat(comptime T: type, value: f32) T
 // splatInt(comptime T: type, value: u32) T
 // usplat(comptime T: type, value: u32) T
+//
+// vec3ToArray(v: Vec) [3]f32
+// asFloats(ptr: anytype) [*]const f32
 //
 // ------------------------------------------------------------------------------
 // 2. Functions that work on all vector components (F32xN = F32x4 or F32x8 or F32x16)
@@ -116,6 +122,7 @@
 // acos(v: F32xN) F32xN
 // atan(v: F32xN) F32xN
 // atan2(vy: F32xN, vx: F32xN) F32xN
+// cmulSoa(re0: F32xN, im0: F32xN, re1: F32xN, im1: F32xN) [2]F32xN
 //
 // ------------------------------------------------------------------------------
 // 3. 2D, 3D, 4D vector functions
@@ -135,16 +142,17 @@
 // normalize2(v: Vec) Vec
 // normalize3(v: Vec) Vec
 // normalize4(v: Vec) Vec
-// mul(v: Vec, m: Mat) Vec
-// mul(m: Mat, v: Vec) Vec
-// mul(v: Vec, s: f32) Vec
-// mul(s: f32, v: Vec) Vec
 //
 // ------------------------------------------------------------------------------
 // 4. Matrix functions
 // ------------------------------------------------------------------------------
 //
+// identity() Mat
 // mul(m0: Mat, m1: Mat) Mat
+// mul(s: f32, m: Mat) Mat
+// mul(m: Mat, s: f32) Mat
+// mul(v: Vec, m: Mat) Vec
+// mul(m: Mat, v: Vec) Vec
 // transpose(m: Mat) Mat
 // rotationX(angle: f32) Mat
 // rotationY(angle: f32) Mat
@@ -159,6 +167,9 @@
 // lookAtRh(eyepos: Vec, focuspos: Vec, updir: Vec) Mat
 // perspectiveFovLh(fovy: f32, aspect: f32, near: f32, far: f32) Mat
 // perspectiveFovRh(fovy: f32, aspect: f32, near: f32, far: f32) Mat
+// perspectiveFovRhGl(fovy: f32, aspect: f32, near: f32, far: f32) Mat
+// orthographicLh(w: f32, h: f32, near: f32, far: f32) Mat
+// orthographicRh(w: f32, h: f32, near: f32, far: f32) Mat
 // determinant(m: Mat) F32x4
 // inverse(m: Mat) Mat
 // inverseDet(m: Mat, det: ?*F32x4) Mat
@@ -169,11 +180,22 @@
 // matFromRollPitchYaw(pitch: f32, yaw: f32, roll: f32) Mat
 // matFromRollPitchYawV(angles: Vec) Mat
 //
+// loadMat(mem: []const f32) Mat
+// loadMat43(mem: []const f32) Mat
+// loadMat34(mem: []const f32) Mat
+// storeMat(mem: []f32, m: Mat) void
+// storeMat43(mem: []f32, m: Mat) void
+// storeMat34(mem: []f32, m: Mat) void
+//
+// matToArray(m: Mat) [16]f32
+// mat43ToArray(m: Mat) [12]f32
+// mat34ToArray(m: Mat) [12]f32
+//
 // ------------------------------------------------------------------------------
 // 5. Quaternion functions
 // ------------------------------------------------------------------------------
 //
-// mul(q0: Quat, q1: Quat) Quat
+// qmul(q0: Quat, q1: Quat) Quat
 // conjugate(quat: Quat) Quat
 // inverse(q: Quat) Quat
 // slerp(q0: Quat, q1: Quat, t: f32) Quat
@@ -187,6 +209,19 @@
 // quatFromRollPitchYawV(angles: Vec) Quat
 //
 // ------------------------------------------------------------------------------
+// 6. Color functions
+// ------------------------------------------------------------------------------
+//
+// adjustSaturation(color: F32x4, saturation: f32) F32x4
+// adjustContrast(color: F32x4, contrast: f32) F32x4
+// rgbToHsl(rgb: F32x4) F32x4
+// hslToRgb(hsl: F32x4) F32x4
+// rgbToHsv(rgb: F32x4) F32x4
+// hsvToRgb(hsv: F32x4) F32x4
+// rgbToSrgb(rgb: F32x4) F32x4
+// srgbToRgb(srgb: F32x4) F32x4
+//
+// ------------------------------------------------------------------------------
 // X. Misc functions
 // ------------------------------------------------------------------------------
 //
@@ -196,6 +231,10 @@
 // sincos(v: f32) [2]f32
 // asin(v: f32) f32
 // acos(v: f32) f32
+//
+// fftInitUnityTable(unitytable: []F32x4) void
+// fft(re: []F32x4, im: []F32x4, unitytable: []const F32x4) void
+// ifft(re: []F32x4, im: []const F32x4, unitytable: []const F32x4) void
 //
 // ==============================================================================
 
@@ -207,7 +246,7 @@ pub const Boolx4 = @Vector(4, bool);
 pub const Boolx8 = @Vector(8, bool);
 pub const Boolx16 = @Vector(16, bool);
 
-// Higher-level 'geometric' types
+// "Higher-level" aliases
 pub const Vec = F32x4;
 pub const Mat = [4]F32x4;
 pub const Quat = F32x4;
@@ -314,17 +353,17 @@ test "zmath.load" {
     var ptr = &a;
     var i: u32 = 0;
     const v0 = load(a[i..], F32x4, 2);
-    try expect(approxEqAbs(v0, [4]f32{ 1.0, 2.0, 0.0, 0.0 }, 0.0));
+    try expect(approxEqAbs(v0, f32x4(1.0, 2.0, 0.0, 0.0), 0.0));
     i += 2;
     const v1 = load(a[i .. i + 2], F32x4, 2);
-    try expect(approxEqAbs(v1, [4]f32{ 3.0, 4.0, 0.0, 0.0 }, 0.0));
+    try expect(approxEqAbs(v1, f32x4(3.0, 4.0, 0.0, 0.0), 0.0));
     const v2 = load(a[5..7], F32x4, 2);
-    try expect(approxEqAbs(v2, [4]f32{ 6.0, 7.0, 0.0, 0.0 }, 0.0));
+    try expect(approxEqAbs(v2, f32x4(6.0, 7.0, 0.0, 0.0), 0.0));
     const v3 = load(ptr[1..], F32x4, 2);
-    try expect(approxEqAbs(v3, [4]f32{ 2.0, 3.0, 0.0, 0.0 }, 0.0));
+    try expect(approxEqAbs(v3, f32x4(2.0, 3.0, 0.0, 0.0), 0.0));
     i += 1;
     const v4 = load(ptr[i .. i + 2], F32x4, 2);
-    try expect(approxEqAbs(v4, [4]f32{ 4.0, 5.0, 0.0, 0.0 }, 0.0));
+    try expect(approxEqAbs(v4, f32x4(4.0, 5.0, 0.0, 0.0), 0.0));
 }
 
 pub fn store(mem: []f32, v: anytype, comptime len: u32) void {
@@ -347,36 +386,8 @@ test "zmath.store" {
     try expect(a[5] == 0.0);
 }
 
-pub fn loadF32x4x4(mem: []const f32) Mat {
-    return Mat{
-        load(mem[0..4], F32x4, 0),
-        load(mem[4..8], F32x4, 0),
-        load(mem[8..12], F32x4, 0),
-        load(mem[12..16], F32x4, 0),
-    };
-}
-test "zmath.loadF32x4x4" {
-    // zig fmt: off
-    const a = [18]f32{
-        1.0, 2.0, 3.0, 4.0,
-        5.0, 6.0, 7.0, 8.0,
-        9.0, 10.0, 11.0, 12.0,
-        13.0, 14.0, 15.0, 16.0,
-        17.0, 18.0
-    };
-    // zig fmt: on
-    const m = loadF32x4x4(a[1..]);
-    try expect(approxEqAbs(m[0], [4]f32{ 2.0, 3.0, 4.0, 5.0 }, 0.0));
-    try expect(approxEqAbs(m[1], [4]f32{ 6.0, 7.0, 8.0, 9.0 }, 0.0));
-    try expect(approxEqAbs(m[2], [4]f32{ 10.0, 11.0, 12.0, 13.0 }, 0.0));
-    try expect(approxEqAbs(m[3], [4]f32{ 14.0, 15.0, 16.0, 17.0 }, 0.0));
-}
-
-pub fn storeF32x4x4(mem: []f32, m: Mat) void {
-    store(mem[0..4], m[0], 0);
-    store(mem[4..8], m[1], 0);
-    store(mem[8..12], m[2], 0);
-    store(mem[12..16], m[3], 0);
+pub inline fn vec3ToArray(v: Vec) [3]f32 {
+    return .{ v[0], v[1], v[2] };
 }
 
 // ------------------------------------------------------------------------------
@@ -437,7 +448,7 @@ pub inline fn isNearEqual(
     v1: anytype,
     epsilon: anytype,
 ) @Vector(veclen(@TypeOf(v0)), bool) {
-    const T = @TypeOf(v0);
+    const T = @TypeOf(v0, v1, epsilon);
     const delta = v0 - v1;
     const temp = maxFast(delta, splat(T, 0.0) - delta);
     return temp <= epsilon;
@@ -518,7 +529,7 @@ pub inline fn isInBounds(
     v: anytype,
     bounds: anytype,
 ) @Vector(veclen(@TypeOf(v)), bool) {
-    const T = @TypeOf(v);
+    const T = @TypeOf(v, bounds);
     const Tu = @Vector(veclen(T), u1);
     const Tr = @Vector(veclen(T), bool);
 
@@ -547,8 +558,8 @@ test "zmath.isInBounds" {
     }
 }
 
-pub inline fn andInt(v0: anytype, v1: anytype) @TypeOf(v0) {
-    const T = @TypeOf(v0);
+pub inline fn andInt(v0: anytype, v1: anytype) @TypeOf(v0, v1) {
+    const T = @TypeOf(v0, v1);
     const Tu = @Vector(veclen(T), u32);
     const v0u = @bitCast(Tu, v0);
     const v1u = @bitCast(Tu, v1);
@@ -571,8 +582,8 @@ test "zmath.andInt" {
     }
 }
 
-pub inline fn andNotInt(v0: anytype, v1: anytype) @TypeOf(v0) {
-    const T = @TypeOf(v0);
+pub inline fn andNotInt(v0: anytype, v1: anytype) @TypeOf(v0, v1) {
+    const T = @TypeOf(v0, v1);
     const Tu = @Vector(veclen(T), u32);
     const v0u = @bitCast(Tu, v0);
     const v1u = @bitCast(Tu, v1);
@@ -593,8 +604,8 @@ test "zmath.andNotInt" {
     }
 }
 
-pub inline fn orInt(v0: anytype, v1: anytype) @TypeOf(v0) {
-    const T = @TypeOf(v0);
+pub inline fn orInt(v0: anytype, v1: anytype) @TypeOf(v0, v1) {
+    const T = @TypeOf(v0, v1);
     const Tu = @Vector(veclen(T), u32);
     const v0u = @bitCast(Tu, v0);
     const v1u = @bitCast(Tu, v1);
@@ -621,16 +632,16 @@ test "zmath.orInt" {
     }
 }
 
-pub inline fn norInt(v0: anytype, v1: anytype) @TypeOf(v0) {
-    const T = @TypeOf(v0);
+pub inline fn norInt(v0: anytype, v1: anytype) @TypeOf(v0, v1) {
+    const T = @TypeOf(v0, v1);
     const Tu = @Vector(veclen(T), u32);
     const v0u = @bitCast(Tu, v0);
     const v1u = @bitCast(Tu, v1);
     return @bitCast(T, ~(v0u | v1u)); // por, pcmpeqd, pxor
 }
 
-pub inline fn xorInt(v0: anytype, v1: anytype) @TypeOf(v0) {
-    const T = @TypeOf(v0);
+pub inline fn xorInt(v0: anytype, v1: anytype) @TypeOf(v0, v1) {
+    const T = @TypeOf(v0, v1);
     const Tu = @Vector(veclen(T), u32);
     const v0u = @bitCast(Tu, v0);
     const v1u = @bitCast(Tu, v1);
@@ -657,7 +668,7 @@ test "zmath.xorInt" {
     }
 }
 
-pub inline fn minFast(v0: anytype, v1: anytype) @TypeOf(v0) {
+pub inline fn minFast(v0: anytype, v1: anytype) @TypeOf(v0, v1) {
     return select(v0 < v1, v0, v1); // minps
 }
 test "zmath.minFast" {
@@ -680,7 +691,7 @@ test "zmath.minFast" {
     }
 }
 
-pub inline fn maxFast(v0: anytype, v1: anytype) @TypeOf(v0) {
+pub inline fn maxFast(v0: anytype, v1: anytype) @TypeOf(v0, v1) {
     return select(v0 > v1, v0, v1); // maxps
 }
 test "zmath.maxFast" {
@@ -702,7 +713,7 @@ test "zmath.maxFast" {
     }
 }
 
-pub inline fn min(v0: anytype, v1: anytype) @TypeOf(v0) {
+pub inline fn min(v0: anytype, v1: anytype) @TypeOf(v0, v1) {
     // This will handle inf & nan
     return @minimum(v0, v1); // minps, cmpunordps, andps, andnps, orps
 }
@@ -743,7 +754,7 @@ test "zmath.min" {
     }
 }
 
-pub inline fn max(v0: anytype, v1: anytype) @TypeOf(v0) {
+pub inline fn max(v0: anytype, v1: anytype) @TypeOf(v0, v1) {
     // This will handle inf & nan
     return @maximum(v0, v1); // maxps, cmpunordps, andps, andnps, orps
 }
@@ -1154,7 +1165,7 @@ test "zmath.ceil" {
     }
 }
 
-pub inline fn clamp(v: anytype, vmin: anytype, vmax: anytype) @TypeOf(v) {
+pub inline fn clamp(v: anytype, vmin: anytype, vmax: anytype) @TypeOf(v, vmin, vmax) {
     var result = max(vmin, v);
     result = min(vmax, result);
     return result;
@@ -1182,7 +1193,7 @@ test "zmath.clamp" {
     }
 }
 
-pub inline fn clampFast(v: anytype, vmin: anytype, vmax: anytype) @TypeOf(v) {
+pub inline fn clampFast(v: anytype, vmin: anytype, vmax: anytype) @TypeOf(v, vmin, vmax) {
     var result = maxFast(vmin, v);
     result = minFast(vmax, result);
     return result;
@@ -1261,16 +1272,16 @@ pub inline fn abs(v: anytype) @TypeOf(v) {
     return @fabs(v); // load, andps
 }
 
-pub inline fn select(mask: anytype, v0: anytype, v1: anytype) @TypeOf(v0) {
+pub inline fn select(mask: anytype, v0: anytype, v1: anytype) @TypeOf(v0, v1) {
     return @select(f32, mask, v0, v1);
 }
 
-pub inline fn lerp(v0: anytype, v1: anytype, t: f32) @TypeOf(v0) {
-    const T = @TypeOf(v0);
+pub inline fn lerp(v0: anytype, v1: anytype, t: f32) @TypeOf(v0, v1) {
+    const T = @TypeOf(v0, v1);
     return v0 + (v1 - v0) * splat(T, t); // subps, shufps, addps, mulps
 }
 
-pub inline fn lerpV(v0: anytype, v1: anytype, t: anytype) @TypeOf(v0) {
+pub inline fn lerpV(v0: anytype, v1: anytype, t: anytype) @TypeOf(v0, v1, t) {
     return v0 + (v1 - v0) * t; // subps, addps, mulps
 }
 
@@ -1286,7 +1297,7 @@ pub inline fn swizzle(
     return @shuffle(f32, v, undefined, [4]i32{ @enumToInt(x), @enumToInt(y), @enumToInt(z), @enumToInt(w) });
 }
 
-pub inline fn mod(v0: anytype, v1: anytype) @TypeOf(v0) {
+pub inline fn mod(v0: anytype, v1: anytype) @TypeOf(v0, v1) {
     // vdivps, vroundps, vmulps, vsubps
     return v0 - v1 * trunc(v0 / v1);
 }
@@ -1329,8 +1340,8 @@ test "zmath.modAngle" {
     try expect(approxEqAbs(modAngle(splat(F32x4, 2.5 * math.pi)), splat(F32x4, 0.5 * math.pi), 0.0005));
 }
 
-pub inline fn mulAdd(v0: anytype, v1: anytype, v2: anytype) @TypeOf(v0) {
-    const T = @TypeOf(v0);
+pub inline fn mulAdd(v0: anytype, v1: anytype, v2: anytype) @TypeOf(v0, v1, v2) {
+    const T = @TypeOf(v0, v1, v2);
     if (cpu_arch == .x86_64 and has_avx and has_fma) {
         return @mulAdd(T, v0, v1, v2);
     } else {
@@ -1359,7 +1370,7 @@ fn sin32xN(v: anytype) @TypeOf(v) {
     result = mulAdd(result, x2, splat(T, 1.0));
     return x * result;
 }
-test "sin" {
+test "zmath.sin" {
     const epsilon = 0.0001;
 
     try expect(approxEqAbs(sin(splat(F32x4, 0.5 * math.pi)), splat(F32x4, 1.0), epsilon));
@@ -1636,8 +1647,8 @@ test "zmath.atan" {
     }
 }
 
-pub fn atan2(vy: anytype, vx: anytype) @TypeOf(vx) {
-    const T = @TypeOf(vy);
+pub fn atan2(vy: anytype, vx: anytype) @TypeOf(vx, vy) {
+    const T = @TypeOf(vx, vy);
     const Tu = @Vector(veclen(T), u32);
 
     const vx_is_positive =
@@ -1938,15 +1949,23 @@ test "zmath.vecMulMat" {
 //
 // ------------------------------------------------------------------------------
 
+pub fn identity() Mat {
+    const static = struct {
+        const identity = Mat{
+            f32x4(1.0, 0.0, 0.0, 0.0),
+            f32x4(0.0, 1.0, 0.0, 0.0),
+            f32x4(0.0, 0.0, 1.0, 0.0),
+            f32x4(0.0, 0.0, 0.0, 1.0),
+        };
+    };
+    return static.identity;
+}
+
 fn mulRetType(comptime Ta: type, comptime Tb: type) type {
     if (Ta == Mat and Tb == Mat) {
         return Mat;
-    } else if (Ta == Quat and Tb == Quat) {
-        return Quat;
     } else if ((Ta == f32 and Tb == Mat) or (Ta == Mat and Tb == f32)) {
         return Mat;
-    } else if ((Ta == f32 and Tb == Vec) or (Ta == Vec and Tb == f32)) {
-        return Vec;
     } else if ((Ta == Vec and Tb == Mat) or (Ta == Mat and Tb == Vec)) {
         return Vec;
     }
@@ -1958,18 +1977,12 @@ pub fn mul(a: anytype, b: anytype) mulRetType(@TypeOf(a), @TypeOf(b)) {
     const Tb = @TypeOf(b);
     if (Ta == Mat and Tb == Mat) {
         return mulMat(a, b);
-    } else if (Ta == Quat and Tb == Quat) {
-        return mulQuat(a, b);
     } else if (Ta == f32 and Tb == Mat) {
         const va = splat(F32x4, a);
         return Mat{ va * b[0], va * b[1], va * b[2], va * b[3] };
     } else if (Ta == Mat and Tb == f32) {
         const vb = splat(F32x4, b);
         return Mat{ a[0] * vb, a[1] * vb, a[2] * vb, a[3] * vb };
-    } else if (Ta == f32 and Tb == Vec) {
-        return splat(F32x4, a) * b;
-    } else if (Ta == Vec and Tb == f32) {
-        return a * splat(F32x4, b);
     } else if (Ta == Vec and Tb == Mat) {
         return vecMulMat(a, b);
     } else if (Ta == Mat and Tb == Vec) {
@@ -1979,11 +1992,6 @@ pub fn mul(a: anytype, b: anytype) mulRetType(@TypeOf(a), @TypeOf(b)) {
     }
 }
 test "zmath.mul" {
-    {
-        const s: f32 = 2.0;
-        try expect(approxEqAbs(mul(s, f32x4(1.0, 2.0, 3.0, 4.0)), f32x4(2.0, 4.0, 6.0, 8.0), 0.0001));
-        try expect(approxEqAbs(mul(f32x4(1.0, 2.0, 3.0, 4.0), s), f32x4(2.0, 4.0, 6.0, 8.0), 0.0001));
-    }
     {
         const m = Mat{
             f32x4(0.1, 0.2, 0.3, 0.4),
@@ -2180,6 +2188,53 @@ pub fn perspectiveFovRh(fovy: f32, aspect: f32, near: f32, far: f32) Mat {
         f32x4(0.0, h, 0.0, 0.0),
         f32x4(0.0, 0.0, r, -1.0),
         f32x4(0.0, 0.0, r * near, 0.0),
+    };
+}
+
+// Produces Z values in [-1.0, 1.0] range (OpenGL defaults)
+pub fn perspectiveFovRhGl(fovy: f32, aspect: f32, near: f32, far: f32) Mat {
+    const scfov = sincos(0.5 * fovy);
+
+    assert(near > 0.0 and far > 0.0 and far > near);
+    assert(!math.approxEqAbs(f32, scfov[0], 0.0, 0.001));
+    assert(!math.approxEqAbs(f32, far, near, 0.001));
+    assert(!math.approxEqAbs(f32, aspect, 0.0, 0.01));
+
+    const h = scfov[1] / scfov[0];
+    const w = h / aspect;
+    const r = near - far;
+    return .{
+        f32x4(w, 0.0, 0.0, 0.0),
+        f32x4(0.0, h, 0.0, 0.0),
+        f32x4(0.0, 0.0, (near + far) / r, -1.0),
+        f32x4(0.0, 0.0, 2.0 * near * far / r, 0.0),
+    };
+}
+
+pub fn orthographicLh(w: f32, h: f32, near: f32, far: f32) Mat {
+    assert(!math.approxEqAbs(f32, w, 0.0, 0.001));
+    assert(!math.approxEqAbs(f32, h, 0.0, 0.001));
+    assert(!math.approxEqAbs(f32, far, near, 0.001));
+
+    const r = 1 / (far - near);
+    return .{
+        f32x4(2 / w, 0.0, 0.0, 0.0),
+        f32x4(0.0, 2 / h, 0.0, 0.0),
+        f32x4(0.0, 0.0, r, 0.0),
+        f32x4(0.0, 0.0, -r * near, 1.0),
+    };
+}
+pub fn orthographicRh(w: f32, h: f32, near: f32, far: f32) Mat {
+    assert(!math.approxEqAbs(f32, w, 0.0, 0.001));
+    assert(!math.approxEqAbs(f32, h, 0.0, 0.001));
+    assert(!math.approxEqAbs(f32, far, near, 0.001));
+
+    const r = 1 / (near - far);
+    return .{
+        f32x4(2 / w, 0.0, 0.0, 0.0),
+        f32x4(0.0, 2 / h, 0.0, 0.0),
+        f32x4(0.0, 0.0, r, 0.0),
+        f32x4(0.0, 0.0, r * near, 1.0),
     };
 }
 
@@ -2493,13 +2548,115 @@ pub fn matToQuat(m: Mat) Quat {
     return quatFromMat(m);
 }
 
+pub inline fn loadMat(mem: []const f32) Mat {
+    return .{
+        load(mem[0..4], F32x4, 0),
+        load(mem[4..8], F32x4, 0),
+        load(mem[8..12], F32x4, 0),
+        load(mem[12..16], F32x4, 0),
+    };
+}
+test "zmath.loadMat" {
+    const a = [18]f32{
+        1.0,  2.0,  3.0,  4.0,
+        5.0,  6.0,  7.0,  8.0,
+        9.0,  10.0, 11.0, 12.0,
+        13.0, 14.0, 15.0, 16.0,
+        17.0, 18.0,
+    };
+    const m = loadMat(a[1..]);
+    try expect(approxEqAbs(m[0], f32x4(2.0, 3.0, 4.0, 5.0), 0.0));
+    try expect(approxEqAbs(m[1], f32x4(6.0, 7.0, 8.0, 9.0), 0.0));
+    try expect(approxEqAbs(m[2], f32x4(10.0, 11.0, 12.0, 13.0), 0.0));
+    try expect(approxEqAbs(m[3], f32x4(14.0, 15.0, 16.0, 17.0), 0.0));
+}
+
+pub inline fn storeMat(mem: []f32, m: Mat) void {
+    store(mem[0..4], m[0], 0);
+    store(mem[4..8], m[1], 0);
+    store(mem[8..12], m[2], 0);
+    store(mem[12..16], m[3], 0);
+}
+
+pub inline fn loadMat43(mem: []const f32) Mat {
+    return .{
+        f32x4(mem[0], mem[1], mem[2], 0.0),
+        f32x4(mem[3], mem[4], mem[5], 0.0),
+        f32x4(mem[6], mem[7], mem[8], 0.0),
+        f32x4(mem[9], mem[10], mem[11], 1.0),
+    };
+}
+
+pub inline fn storeMat43(mem: []f32, m: Mat) void {
+    store(mem[0..3], m[0], 3);
+    store(mem[3..6], m[1], 3);
+    store(mem[6..9], m[2], 3);
+    store(mem[9..12], m[3], 3);
+}
+
+pub inline fn loadMat34(mem: []const f32) Mat {
+    return .{
+        load(mem[0..4], F32x4, 0),
+        load(mem[4..8], F32x4, 0),
+        load(mem[8..12], F32x4, 0),
+        f32x4(0.0, 0.0, 0.0, 1.0),
+    };
+}
+
+pub inline fn storeMat34(mem: []f32, m: Mat) void {
+    store(mem[0..4], m[0], 0);
+    store(mem[4..8], m[1], 0);
+    store(mem[8..12], m[2], 0);
+}
+
+pub inline fn matToArray(m: Mat) [16]f32 {
+    var array: [16]f32 = undefined;
+    storeMat(array[0..], m);
+    return array;
+}
+
+pub inline fn mat43ToArray(m: Mat) [12]f32 {
+    var array: [12]f32 = undefined;
+    storeMat43(array[0..], m);
+    return array;
+}
+
+pub inline fn mat34ToArray(m: Mat) [12]f32 {
+    var array: [12]f32 = undefined;
+    storeMat34(array[0..], m);
+    return array;
+}
+
+pub inline fn asFloats(ptr: anytype) [*]const f32 {
+    comptime assert(@typeInfo(@TypeOf(ptr)) == .Pointer);
+    const T = std.meta.Child(@TypeOf(ptr));
+    comptime assert(T == Mat or T == F32x4 or T == F32x8 or T == F32x16);
+    return @ptrCast([*]const f32, ptr);
+}
+test "asFloats" {
+    {
+        const mat = identity();
+        const f32ptr = asFloats(&mat);
+        try expect(f32ptr[0] == 1.0);
+        try expect(f32ptr[5] == 1.0);
+        try expect(f32ptr[10] == 1.0);
+        try expect(f32ptr[15] == 1.0);
+    }
+    {
+        const v8 = f32x8s(1.0);
+        const f32ptr = asFloats(&v8);
+        try expect(f32ptr[1] == 1.0);
+        try expect(f32ptr[7] == 1.0);
+    }
+}
+
 // ------------------------------------------------------------------------------
 //
 // 5. Quaternion functions
 //
 // ------------------------------------------------------------------------------
 
-fn mulQuat(q0: Quat, q1: Quat) Quat {
+pub fn qmul(q0: Quat, q1: Quat) Quat {
     var result = swizzle(q1, .w, .w, .w, .w);
     var q1x = swizzle(q1, .x, .x, .x, .x);
     var q1y = swizzle(q1, .y, .y, .y, .y);
@@ -2520,7 +2677,7 @@ test "zmath.quaternion.mul" {
     {
         const q0 = f32x4(2.0, 3.0, 4.0, 1.0);
         const q1 = f32x4(3.0, 2.0, 1.0, 4.0);
-        try expect(approxEqAbs(mul(q0, q1), f32x4(16.0, 4.0, 22.0, -12.0), 0.0001));
+        try expect(approxEqAbs(qmul(q0, q1), f32x4(16.0, 4.0, 22.0, -12.0), 0.0001));
     }
 }
 
@@ -2538,7 +2695,7 @@ test "zmath.quaternion.quatToAxisAngle" {
         var axis: Vec = f32x4(4.0, 3.0, 2.0, 1.0);
         var angle: f32 = 10.0;
         quatToAxisAngle(q0, &axis, &angle);
-        try expect(math.approxEqAbs(f32, axis[0], math.sin(@as(f32, 0.25) * math.pi * 0.5), 0.0001));
+        try expect(math.approxEqAbs(f32, axis[0], @sin(@as(f32, 0.25) * math.pi * 0.5), 0.0001));
         try expect(axis[1] == 0.0);
         try expect(axis[2] == 0.0);
         try expect(math.approxEqAbs(f32, angle, 0.25 * math.pi, 0.0001));
@@ -2622,7 +2779,7 @@ test "zmath.quaternion.quatFromNormAxisAngle" {
         const q1 = quatFromAxisAngle(f32x4(0.0, 1.0, 0.0, 0.0), 0.125 * math.pi);
         const m0 = rotationX(0.25 * math.pi);
         const m1 = rotationY(0.125 * math.pi);
-        const mr0 = quatToMat(mul(q0, q1));
+        const mr0 = quatToMat(qmul(q0, q1));
         const mr1 = mul(m0, m1);
         try expect(approxEqAbs(mr0[0], mr1[0], 0.0001));
         try expect(approxEqAbs(mr0[1], mr1[1], 0.0001));
@@ -2722,6 +2879,327 @@ test "zmath.quaternion.quatFromRollPitchYawV" {
         try expect(approxEqAbs(m0[2], m1[2], 0.0001));
         try expect(approxEqAbs(m0[3], m1[3], 0.0001));
     }
+}
+
+// ------------------------------------------------------------------------------
+//
+// 6. Color functions
+//
+// ------------------------------------------------------------------------------
+
+pub fn adjustSaturation(color: F32x4, saturation: f32) F32x4 {
+    const luminance = dot3(f32x4(0.2125, 0.7154, 0.0721, 0.0), color);
+    var result = mulAdd(color - luminance, f32x4s(saturation), luminance);
+    result[3] = color[3];
+    return result;
+}
+
+pub fn adjustContrast(color: F32x4, contrast: f32) F32x4 {
+    var result = mulAdd(color - f32x4s(0.5), f32x4s(contrast), f32x4s(0.5));
+    result[3] = color[3];
+    return result;
+}
+
+pub fn rgbToHsl(rgb: F32x4) F32x4 {
+    const r = swizzle(rgb, .x, .x, .x, .x);
+    const g = swizzle(rgb, .y, .y, .y, .y);
+    const b = swizzle(rgb, .z, .z, .z, .z);
+
+    const minv = min(r, min(g, b));
+    const maxv = max(r, max(g, b));
+
+    const l = (minv + maxv) * f32x4s(0.5);
+    const d = maxv - minv;
+    const la = select(boolx4(true, true, true, false), l, rgb);
+
+    if (all(d < f32x4s(math.f32_epsilon), 3)) {
+        return select(boolx4(true, true, false, false), f32x4s(0.0), la);
+    } else {
+        var s: F32x4 = undefined;
+        var h: F32x4 = undefined;
+
+        const d2 = minv + maxv;
+
+        if (all(l > f32x4s(0.5), 3)) {
+            s = d / (f32x4s(2.0) - d2);
+        } else {
+            s = d / d2;
+        }
+
+        if (all(r == maxv, 3)) {
+            h = (g - b) / d;
+        } else if (all(g == maxv, 3)) {
+            h = f32x4s(2.0) + (b - r) / d;
+        } else {
+            h = f32x4s(4.0) + (r - g) / d;
+        }
+
+        h /= f32x4s(6.0);
+
+        if (all(h < f32x4s(0.0), 3)) {
+            h += f32x4s(1.0);
+        }
+
+        const lha = select(boolx4(true, true, false, false), h, la);
+        return select(boolx4(true, false, true, true), lha, s);
+    }
+}
+test "zmath.color.rgbToHsl" {
+    try expect(approxEqAbs(rgbToHsl(f32x4(0.2, 0.4, 0.8, 1.0)), f32x4(0.6111, 0.6, 0.5, 1.0), 0.0001));
+    try expect(approxEqAbs(rgbToHsl(f32x4(1.0, 0.0, 0.0, 0.5)), f32x4(0.0, 1.0, 0.5, 0.5), 0.0001));
+    try expect(approxEqAbs(rgbToHsl(f32x4(0.0, 1.0, 0.0, 0.25)), f32x4(0.3333, 1.0, 0.5, 0.25), 0.0001));
+    try expect(approxEqAbs(rgbToHsl(f32x4(0.0, 0.0, 1.0, 1.0)), f32x4(0.6666, 1.0, 0.5, 1.0), 0.0001));
+    try expect(approxEqAbs(rgbToHsl(f32x4(0.0, 0.0, 0.0, 1.0)), f32x4(0.0, 0.0, 0.0, 1.0), 0.0001));
+    try expect(approxEqAbs(rgbToHsl(f32x4(1.0, 1.0, 1.0, 1.0)), f32x4(0.0, 0.0, 1.0, 1.0), 0.0001));
+}
+
+fn hueToClr(p: F32x4, q: F32x4, h: F32x4) F32x4 {
+    var t = h;
+
+    if (all(t < f32x4s(0.0), 3))
+        t += f32x4s(1.0);
+
+    if (all(t > f32x4s(1.0), 3))
+        t -= f32x4s(1.0);
+
+    if (all(t < f32x4s(1.0 / 6.0), 3))
+        return mulAdd(q - p, f32x4s(6.0) * t, p);
+
+    if (all(t < f32x4s(0.5), 3))
+        return q;
+
+    if (all(t < f32x4s(2.0 / 3.0), 3))
+        return mulAdd(q - p, f32x4s(6.0) * (f32x4s(2.0 / 3.0) - t), p);
+
+    return p;
+}
+
+pub fn hslToRgb(hsl: F32x4) F32x4 {
+    const s = swizzle(hsl, .y, .y, .y, .y);
+    const l = swizzle(hsl, .z, .z, .z, .z);
+
+    if (all(isNearEqual(s, f32x4s(0.0), f32x4s(math.f32_epsilon)), 3)) {
+        return select(boolx4(true, true, true, false), l, hsl);
+    } else {
+        const h = swizzle(hsl, .x, .x, .x, .x);
+        var q: F32x4 = undefined;
+        if (all(l < f32x4s(0.5), 3)) {
+            q = l * (f32x4s(1.0) + s);
+        } else {
+            q = (l + s) - (l * s);
+        }
+
+        const p = f32x4s(2.0) * l - q;
+
+        const r = hueToClr(p, q, h + f32x4s(1.0 / 3.0));
+        const g = hueToClr(p, q, h);
+        const b = hueToClr(p, q, h - f32x4s(1.0 / 3.0));
+
+        const rg = select(boolx4(true, false, false, false), r, g);
+        const ba = select(boolx4(true, true, true, false), b, hsl);
+        return select(boolx4(true, true, false, false), rg, ba);
+    }
+}
+test "zmath.color.hslToRgb" {
+    try expect(approxEqAbs(f32x4(0.2, 0.4, 0.8, 1.0), hslToRgb(f32x4(0.6111, 0.6, 0.5, 1.0)), 0.0001));
+    try expect(approxEqAbs(f32x4(1.0, 0.0, 0.0, 0.5), hslToRgb(f32x4(0.0, 1.0, 0.5, 0.5)), 0.0001));
+    try expect(approxEqAbs(f32x4(0.0, 1.0, 0.0, 0.25), hslToRgb(f32x4(0.3333, 1.0, 0.5, 0.25)), 0.0005));
+    try expect(approxEqAbs(f32x4(0.0, 0.0, 1.0, 1.0), hslToRgb(f32x4(0.6666, 1.0, 0.5, 1.0)), 0.0005));
+    try expect(approxEqAbs(f32x4(0.0, 0.0, 0.0, 1.0), hslToRgb(f32x4(0.0, 0.0, 0.0, 1.0)), 0.0001));
+    try expect(approxEqAbs(f32x4(1.0, 1.0, 1.0, 1.0), hslToRgb(f32x4(0.0, 0.0, 1.0, 1.0)), 0.0001));
+    try expect(approxEqAbs(hslToRgb(rgbToHsl(f32x4(1.0, 1.0, 1.0, 1.0))), f32x4(1.0, 1.0, 1.0, 1.0), 0.0005));
+    try expect(approxEqAbs(
+        hslToRgb(rgbToHsl(f32x4(0.82198, 0.1839, 0.632, 1.0))),
+        f32x4(0.82198, 0.1839, 0.632, 1.0),
+        0.0005,
+    ));
+    try expect(approxEqAbs(
+        rgbToHsl(hslToRgb(f32x4(0.82198, 0.1839, 0.632, 1.0))),
+        f32x4(0.82198, 0.1839, 0.632, 1.0),
+        0.0005,
+    ));
+    try expect(approxEqAbs(
+        rgbToHsl(hslToRgb(f32x4(0.1839, 0.82198, 0.632, 1.0))),
+        f32x4(0.1839, 0.82198, 0.632, 1.0),
+        0.0005,
+    ));
+    try expect(approxEqAbs(
+        hslToRgb(rgbToHsl(f32x4(0.1839, 0.632, 0.82198, 1.0))),
+        f32x4(0.1839, 0.632, 0.82198, 1.0),
+        0.0005,
+    ));
+}
+
+pub fn rgbToHsv(rgb: F32x4) F32x4 {
+    const r = swizzle(rgb, .x, .x, .x, .x);
+    const g = swizzle(rgb, .y, .y, .y, .y);
+    const b = swizzle(rgb, .z, .z, .z, .z);
+
+    const minv = min(r, min(g, b));
+    const v = max(r, max(g, b));
+    const d = v - minv;
+    const s = if (all(isNearEqual(v, f32x4s(0.0), f32x4s(math.f32_epsilon)), 3)) f32x4s(0.0) else d / v;
+
+    if (all(d < f32x4s(math.f32_epsilon), 3)) {
+        const hv = select(boolx4(true, false, false, false), f32x4s(0.0), v);
+        const hva = select(boolx4(true, true, true, false), hv, rgb);
+        return select(boolx4(true, false, true, true), hva, s);
+    } else {
+        var h: F32x4 = undefined;
+        if (all(r == v, 3)) {
+            h = (g - b) / d;
+            if (all(g < b, 3))
+                h += f32x4s(6.0);
+        } else if (all(g == v, 3)) {
+            h = f32x4s(2.0) + (b - r) / d;
+        } else {
+            h = f32x4s(4.0) + (r - g) / d;
+        }
+
+        h /= f32x4s(6.0);
+        const hv = select(boolx4(true, false, false, false), h, v);
+        const hva = select(boolx4(true, true, true, false), hv, rgb);
+        return select(boolx4(true, false, true, true), hva, s);
+    }
+}
+test "zmath.color.rgbToHsv" {
+    try expect(approxEqAbs(rgbToHsv(f32x4(0.2, 0.4, 0.8, 1.0)), f32x4(0.6111, 0.75, 0.8, 1.0), 0.0001));
+    try expect(approxEqAbs(rgbToHsv(f32x4(0.4, 0.2, 0.8, 1.0)), f32x4(0.7222, 0.75, 0.8, 1.0), 0.0001));
+    try expect(approxEqAbs(rgbToHsv(f32x4(0.4, 0.8, 0.2, 1.0)), f32x4(0.2777, 0.75, 0.8, 1.0), 0.0001));
+    try expect(approxEqAbs(rgbToHsv(f32x4(1.0, 0.0, 0.0, 0.5)), f32x4(0.0, 1.0, 1.0, 0.5), 0.0001));
+    try expect(approxEqAbs(rgbToHsv(f32x4(0.0, 1.0, 0.0, 0.25)), f32x4(0.3333, 1.0, 1.0, 0.25), 0.0001));
+    try expect(approxEqAbs(rgbToHsv(f32x4(0.0, 0.0, 1.0, 1.0)), f32x4(0.6666, 1.0, 1.0, 1.0), 0.0001));
+    try expect(approxEqAbs(rgbToHsv(f32x4(0.0, 0.0, 0.0, 1.0)), f32x4(0.0, 0.0, 0.0, 1.0), 0.0001));
+    try expect(approxEqAbs(rgbToHsv(f32x4(1.0, 1.0, 1.0, 1.0)), f32x4(0.0, 0.0, 1.0, 1.0), 0.0001));
+}
+
+pub fn hsvToRgb(hsv: F32x4) F32x4 {
+    const h = swizzle(hsv, .x, .x, .x, .x);
+    const s = swizzle(hsv, .y, .y, .y, .y);
+    const v = swizzle(hsv, .z, .z, .z, .z);
+
+    const h6 = h * f32x4s(6.0);
+    const i = floor(h6);
+    const f = h6 - i;
+
+    const p = v * (f32x4s(1.0) - s);
+    const q = v * (f32x4s(1.0) - f * s);
+    const t = v * (f32x4s(1.0) - (f32x4s(1.0) - f) * s);
+
+    const ii = @floatToInt(i32, mod(i, f32x4s(6.0))[0]);
+    const rgb = switch (ii) {
+        0 => blk: {
+            const vt = select(boolx4(true, false, false, false), v, t);
+            break :blk select(boolx4(true, true, false, false), vt, p);
+        },
+        1 => blk: {
+            const qv = select(boolx4(true, false, false, false), q, v);
+            break :blk select(boolx4(true, true, false, false), qv, p);
+        },
+        2 => blk: {
+            const pv = select(boolx4(true, false, false, false), p, v);
+            break :blk select(boolx4(true, true, false, false), pv, t);
+        },
+        3 => blk: {
+            const pq = select(boolx4(true, false, false, false), p, q);
+            break :blk select(boolx4(true, true, false, false), pq, v);
+        },
+        4 => blk: {
+            const tp = select(boolx4(true, false, false, false), t, p);
+            break :blk select(boolx4(true, true, false, false), tp, v);
+        },
+        5 => blk: {
+            const vp = select(boolx4(true, false, false, false), v, p);
+            break :blk select(boolx4(true, true, false, false), vp, q);
+        },
+        else => unreachable,
+    };
+    return select(boolx4(true, true, true, false), rgb, hsv);
+}
+test "zmath.color.hsvToRgb" {
+    const epsilon = 0.0005;
+    try expect(approxEqAbs(f32x4(0.2, 0.4, 0.8, 1.0), hsvToRgb(f32x4(0.6111, 0.75, 0.8, 1.0)), epsilon));
+    try expect(approxEqAbs(f32x4(0.4, 0.2, 0.8, 1.0), hsvToRgb(f32x4(0.7222, 0.75, 0.8, 1.0)), epsilon));
+    try expect(approxEqAbs(f32x4(0.4, 0.8, 0.2, 1.0), hsvToRgb(f32x4(0.2777, 0.75, 0.8, 1.0)), epsilon));
+    try expect(approxEqAbs(f32x4(1.0, 0.0, 0.0, 0.5), hsvToRgb(f32x4(0.0, 1.0, 1.0, 0.5)), epsilon));
+    try expect(approxEqAbs(f32x4(0.0, 1.0, 0.0, 0.25), hsvToRgb(f32x4(0.3333, 1.0, 1.0, 0.25)), epsilon));
+    try expect(approxEqAbs(f32x4(0.0, 0.0, 1.0, 1.0), hsvToRgb(f32x4(0.6666, 1.0, 1.0, 1.0)), epsilon));
+    try expect(approxEqAbs(f32x4(0.0, 0.0, 0.0, 1.0), hsvToRgb(f32x4(0.0, 0.0, 0.0, 1.0)), epsilon));
+    try expect(approxEqAbs(f32x4(1.0, 1.0, 1.0, 1.0), hsvToRgb(f32x4(0.0, 0.0, 1.0, 1.0)), epsilon));
+    try expect(approxEqAbs(
+        hsvToRgb(rgbToHsv(f32x4(0.1839, 0.632, 0.82198, 1.0))),
+        f32x4(0.1839, 0.632, 0.82198, 1.0),
+        epsilon,
+    ));
+    try expect(approxEqAbs(
+        hsvToRgb(rgbToHsv(f32x4(0.82198, 0.1839, 0.632, 1.0))),
+        f32x4(0.82198, 0.1839, 0.632, 1.0),
+        epsilon,
+    ));
+    try expect(approxEqAbs(
+        rgbToHsv(hsvToRgb(f32x4(0.82198, 0.1839, 0.632, 1.0))),
+        f32x4(0.82198, 0.1839, 0.632, 1.0),
+        epsilon,
+    ));
+    try expect(approxEqAbs(
+        rgbToHsv(hsvToRgb(f32x4(0.1839, 0.82198, 0.632, 1.0))),
+        f32x4(0.1839, 0.82198, 0.632, 1.0),
+        epsilon,
+    ));
+}
+
+pub fn rgbToSrgb(rgb: F32x4) F32x4 {
+    const static = struct {
+        const cutoff = f32x4(0.0031308, 0.0031308, 0.0031308, 1.0);
+        const linear = f32x4(12.92, 12.92, 12.92, 1.0);
+        const scale = f32x4(1.055, 1.055, 1.055, 1.0);
+        const bias = f32x4(0.055, 0.055, 0.055, 1.0);
+        const rgamma = 1.0 / 2.4;
+    };
+    var v = saturate(rgb);
+    const v0 = v * static.linear;
+    const v1 = static.scale * f32x4(
+        math.pow(f32, v[0], static.rgamma),
+        math.pow(f32, v[1], static.rgamma),
+        math.pow(f32, v[2], static.rgamma),
+        v[3],
+    ) - static.bias;
+    v = select(v < static.cutoff, v0, v1);
+    return select(boolx4(true, true, true, false), v, rgb);
+}
+test "zmath.color.rgbToSrgb" {
+    const epsilon = 0.001;
+    try expect(approxEqAbs(rgbToSrgb(f32x4(0.2, 0.4, 0.8, 1.0)), f32x4(0.484, 0.665, 0.906, 1.0), epsilon));
+}
+
+pub fn srgbToRgb(srgb: F32x4) F32x4 {
+    const static = struct {
+        const cutoff = f32x4(0.04045, 0.04045, 0.04045, 1.0);
+        const rlinear = f32x4(1.0 / 12.92, 1.0 / 12.92, 1.0 / 12.92, 1.0);
+        const scale = f32x4(1.0 / 1.055, 1.0 / 1.055, 1.0 / 1.055, 1.0);
+        const bias = f32x4(0.055, 0.055, 0.055, 1.0);
+        const gamma = 2.4;
+    };
+    var v = saturate(srgb);
+    const v0 = v * static.rlinear;
+    var v1 = static.scale * (v + static.bias);
+    v1 = f32x4(
+        math.pow(f32, v1[0], static.gamma),
+        math.pow(f32, v1[1], static.gamma),
+        math.pow(f32, v1[2], static.gamma),
+        v1[3],
+    );
+    v = select(v > static.cutoff, v1, v0);
+    return select(boolx4(true, true, true, false), v, srgb);
+}
+test "zmath.color.srgbToRgb" {
+    const epsilon = 0.0007;
+    try expect(approxEqAbs(f32x4(0.2, 0.4, 0.8, 1.0), srgbToRgb(f32x4(0.484, 0.665, 0.906, 1.0)), epsilon));
+    try expect(approxEqAbs(
+        rgbToSrgb(srgbToRgb(f32x4(0.1839, 0.82198, 0.632, 1.0))),
+        f32x4(0.1839, 0.82198, 0.632, 1.0),
+        epsilon,
+    ));
 }
 
 // ------------------------------------------------------------------------------
@@ -2961,13 +3439,709 @@ test "zmath.acos32" {
 
 pub fn modAngle32(in_angle: f32) f32 {
     const angle = in_angle + math.pi;
-    var temp: f32 = math.fabs(angle);
+    var temp: f32 = @fabs(angle);
     temp = temp - (2.0 * math.pi * @intToFloat(f32, @floatToInt(i32, temp / math.pi)));
     temp = temp - math.pi;
     if (angle < 0.0) {
         temp = -temp;
     }
     return temp;
+}
+
+pub fn cmulSoa(re0: anytype, im0: anytype, re1: anytype, im1: anytype) [2]@TypeOf(re0, im0, re1, im1) {
+    const re0_re1 = re0 * re1;
+    const re0_im1 = re0 * im1;
+    return .{
+        mulAdd(-im0, im1, re0_re1), // re
+        mulAdd(re1, im0, re0_im1), // im
+    };
+}
+
+// ------------------------------------------------------------------------------
+//
+// FFT (implementation based on xdsp.h from DirectXMath)
+//
+// ------------------------------------------------------------------------------
+
+fn fftButterflyDit4_1(re0: *F32x4, im0: *F32x4) void {
+    const re0l = swizzle(re0.*, .x, .x, .y, .y);
+    const re0h = swizzle(re0.*, .z, .z, .w, .w);
+
+    const im0l = swizzle(im0.*, .x, .x, .y, .y);
+    const im0h = swizzle(im0.*, .z, .z, .w, .w);
+
+    const re_temp = mulAdd(re0h, f32x4(1.0, -1.0, 1.0, -1.0), re0l);
+    const im_temp = mulAdd(im0h, f32x4(1.0, -1.0, 1.0, -1.0), im0l);
+
+    const re_shuf0 = @shuffle(f32, re_temp, im_temp, [4]i32{ 2, 3, ~@as(i32, 2), ~@as(i32, 3) });
+    const re_shuf = swizzle(re_shuf0, .x, .w, .x, .w);
+    const im_shuf = swizzle(re_shuf0, .z, .y, .z, .y);
+
+    const re_templ = swizzle(re_temp, .x, .y, .x, .y);
+    const im_templ = swizzle(im_temp, .x, .y, .x, .y);
+
+    re0.* = mulAdd(re_shuf, f32x4(1.0, 1.0, -1.0, -1.0), re_templ);
+    im0.* = mulAdd(im_shuf, f32x4(1.0, -1.0, -1.0, 1.0), im_templ);
+}
+
+fn fftButterflyDit4_4(
+    re0: *F32x4,
+    re1: *F32x4,
+    re2: *F32x4,
+    re3: *F32x4,
+    im0: *F32x4,
+    im1: *F32x4,
+    im2: *F32x4,
+    im3: *F32x4,
+    unity_table_re: []const F32x4,
+    unity_table_im: []const F32x4,
+    stride: u32,
+    last: bool,
+) void {
+    const re_temp0 = re0.* + re2.*;
+    const im_temp0 = im0.* + im2.*;
+
+    const re_temp2 = re1.* + re3.*;
+    const im_temp2 = im1.* + im3.*;
+
+    const re_temp1 = re0.* - re2.*;
+    const im_temp1 = im0.* - im2.*;
+
+    const re_temp3 = re1.* - re3.*;
+    const im_temp3 = im1.* - im3.*;
+
+    var re_temp4 = re_temp0 + re_temp2;
+    var im_temp4 = im_temp0 + im_temp2;
+
+    var re_temp5 = re_temp1 + im_temp3;
+    var im_temp5 = im_temp1 - re_temp3;
+
+    var re_temp6 = re_temp0 - re_temp2;
+    var im_temp6 = im_temp0 - im_temp2;
+
+    var re_temp7 = re_temp1 - im_temp3;
+    var im_temp7 = im_temp1 + re_temp3;
+
+    {
+        const re_im = cmulSoa(re_temp5, im_temp5, unity_table_re[stride], unity_table_im[stride]);
+        re_temp5 = re_im[0];
+        im_temp5 = re_im[1];
+    }
+    {
+        const re_im = cmulSoa(re_temp6, im_temp6, unity_table_re[stride * 2], unity_table_im[stride * 2]);
+        re_temp6 = re_im[0];
+        im_temp6 = re_im[1];
+    }
+    {
+        const re_im = cmulSoa(re_temp7, im_temp7, unity_table_re[stride * 3], unity_table_im[stride * 3]);
+        re_temp7 = re_im[0];
+        im_temp7 = re_im[1];
+    }
+
+    if (last) {
+        fftButterflyDit4_1(&re_temp4, &im_temp4);
+        fftButterflyDit4_1(&re_temp5, &im_temp5);
+        fftButterflyDit4_1(&re_temp6, &im_temp6);
+        fftButterflyDit4_1(&re_temp7, &im_temp7);
+    }
+
+    re0.* = re_temp4;
+    im0.* = im_temp4;
+
+    re1.* = re_temp5;
+    im1.* = im_temp5;
+
+    re2.* = re_temp6;
+    im2.* = im_temp6;
+
+    re3.* = re_temp7;
+    im3.* = im_temp7;
+}
+
+fn fft4(re: []F32x4, im: []F32x4, count: u32) void {
+    assert(std.math.isPowerOfTwo(count));
+    assert(re.len >= count);
+    assert(im.len >= count);
+
+    var index: u32 = 0;
+    while (index < count) : (index += 1) {
+        fftButterflyDit4_1(&re[index], &im[index]);
+    }
+}
+test "zmath.fft4" {
+    const epsilon = 0.0001;
+    var re = [_]F32x4{f32x4(1.0, 2.0, 3.0, 4.0)};
+    var im = [_]F32x4{f32x4s(0.0)};
+    fft4(re[0..], im[0..], 1);
+
+    var re_uns: [1]F32x4 = undefined;
+    var im_uns: [1]F32x4 = undefined;
+    fftUnswizzle(re[0..], re_uns[0..]);
+    fftUnswizzle(im[0..], im_uns[0..]);
+
+    try expect(approxEqAbs(re_uns[0], f32x4(10.0, -2.0, -2.0, -2.0), epsilon));
+    try expect(approxEqAbs(im_uns[0], f32x4(0.0, 2.0, 0.0, -2.0), epsilon));
+}
+
+fn fft8(re: []F32x4, im: []F32x4, count: u32) void {
+    assert(std.math.isPowerOfTwo(count));
+    assert(re.len >= 2 * count);
+    assert(im.len >= 2 * count);
+
+    var index: u32 = 0;
+    while (index < count) : (index += 1) {
+        var pre = re[index * 2 ..];
+        var pim = im[index * 2 ..];
+
+        var odds_re = @shuffle(f32, pre[0], pre[1], [4]i32{ 1, 3, ~@as(i32, 1), ~@as(i32, 3) });
+        var evens_re = @shuffle(f32, pre[0], pre[1], [4]i32{ 0, 2, ~@as(i32, 0), ~@as(i32, 2) });
+        var odds_im = @shuffle(f32, pim[0], pim[1], [4]i32{ 1, 3, ~@as(i32, 1), ~@as(i32, 3) });
+        var evens_im = @shuffle(f32, pim[0], pim[1], [4]i32{ 0, 2, ~@as(i32, 0), ~@as(i32, 2) });
+        fftButterflyDit4_1(&odds_re, &odds_im);
+        fftButterflyDit4_1(&evens_re, &evens_im);
+
+        {
+            const re_im = cmulSoa(
+                odds_re,
+                odds_im,
+                f32x4(1.0, 0.70710677, 0.0, -0.70710677),
+                f32x4(0.0, -0.70710677, -1.0, -0.70710677),
+            );
+            pre[0] = evens_re + re_im[0];
+            pim[0] = evens_im + re_im[1];
+        }
+        {
+            const re_im = cmulSoa(
+                odds_re,
+                odds_im,
+                f32x4(-1.0, -0.70710677, 0.0, 0.70710677),
+                f32x4(0.0, 0.70710677, 1.0, 0.70710677),
+            );
+            pre[1] = evens_re + re_im[0];
+            pim[1] = evens_im + re_im[1];
+        }
+    }
+}
+test "zmath.fft8" {
+    const epsilon = 0.0001;
+    var re = [_]F32x4{ f32x4(1.0, 2.0, 3.0, 4.0), f32x4(5.0, 6.0, 7.0, 8.0) };
+    var im = [_]F32x4{ f32x4s(0.0), f32x4s(0.0) };
+    fft8(re[0..], im[0..], 1);
+
+    var re_uns: [2]F32x4 = undefined;
+    var im_uns: [2]F32x4 = undefined;
+    fftUnswizzle(re[0..], re_uns[0..]);
+    fftUnswizzle(im[0..], im_uns[0..]);
+
+    try expect(approxEqAbs(re_uns[0], f32x4(36.0, -4.0, -4.0, -4.0), epsilon));
+    try expect(approxEqAbs(re_uns[1], f32x4(-4.0, -4.0, -4.0, -4.0), epsilon));
+    try expect(approxEqAbs(im_uns[0], f32x4(0.0, 9.656854, 4.0, 1.656854), epsilon));
+    try expect(approxEqAbs(im_uns[1], f32x4(0.0, -1.656854, -4.0, -9.656854), epsilon));
+}
+
+fn fft16(re: []F32x4, im: []F32x4, count: u32) void {
+    assert(std.math.isPowerOfTwo(count));
+    assert(re.len >= 4 * count);
+    assert(im.len >= 4 * count);
+
+    const static = struct {
+        const unity_table_re = [4]F32x4{
+            f32x4(1.0, 1.0, 1.0, 1.0),
+            f32x4(1.0, 0.92387950, 0.70710677, 0.38268343),
+            f32x4(1.0, 0.70710677, -4.3711388e-008, -0.70710677),
+            f32x4(1.0, 0.38268343, -0.70710677, -0.92387950),
+        };
+        const unity_table_im = [4]F32x4{
+            f32x4(-0.0, -0.0, -0.0, -0.0),
+            f32x4(-0.0, -0.38268343, -0.70710677, -0.92387950),
+            f32x4(-0.0, -0.70710677, -1.0, -0.70710677),
+            f32x4(-0.0, -0.92387950, -0.70710677, 0.38268343),
+        };
+    };
+
+    var index: u32 = 0;
+    while (index < count) : (index += 1) {
+        fftButterflyDit4_4(
+            &re[index * 4],
+            &re[index * 4 + 1],
+            &re[index * 4 + 2],
+            &re[index * 4 + 3],
+            &im[index * 4],
+            &im[index * 4 + 1],
+            &im[index * 4 + 2],
+            &im[index * 4 + 3],
+            static.unity_table_re[0..],
+            static.unity_table_im[0..],
+            1,
+            true,
+        );
+    }
+}
+test "zmath.fft16" {
+    const epsilon = 0.0001;
+    var re = [_]F32x4{
+        f32x4(1.0, 2.0, 3.0, 4.0),
+        f32x4(5.0, 6.0, 7.0, 8.0),
+        f32x4(9.0, 10.0, 11.0, 12.0),
+        f32x4(13.0, 14.0, 15.0, 16.0),
+    };
+    var im = [_]F32x4{ f32x4s(0.0), f32x4s(0.0), f32x4s(0.0), f32x4s(0.0) };
+    fft16(re[0..], im[0..], 1);
+
+    var re_uns: [4]F32x4 = undefined;
+    var im_uns: [4]F32x4 = undefined;
+    fftUnswizzle(re[0..], re_uns[0..]);
+    fftUnswizzle(im[0..], im_uns[0..]);
+
+    try expect(approxEqAbs(re_uns[0], f32x4(136.0, -8.0, -8.0, -8.0), epsilon));
+    try expect(approxEqAbs(re_uns[1], f32x4(-8.0, -8.0, -8.0, -8.0), epsilon));
+    try expect(approxEqAbs(re_uns[2], f32x4(-8.0, -8.0, -8.0, -8.0), epsilon));
+    try expect(approxEqAbs(re_uns[3], f32x4(-8.0, -8.0, -8.0, -8.0), epsilon));
+    try expect(approxEqAbs(im_uns[0], f32x4(0.0, 40.218716, 19.313708, 11.972846), epsilon));
+    try expect(approxEqAbs(im_uns[1], f32x4(8.0, 5.345429, 3.313708, 1.591299), epsilon));
+    try expect(approxEqAbs(im_uns[2], f32x4(0.0, -1.591299, -3.313708, -5.345429), epsilon));
+    try expect(approxEqAbs(im_uns[3], f32x4(-8.0, -11.972846, -19.313708, -40.218716), epsilon));
+}
+
+fn fftN(re: []F32x4, im: []F32x4, unity_table: []const F32x4, length: u32, count: u32) void {
+    assert(length > 16);
+    assert(std.math.isPowerOfTwo(length));
+    assert(std.math.isPowerOfTwo(count));
+    assert(re.len >= length * count / 4);
+    assert(re.len == im.len);
+
+    const total = count * length;
+    const total_vectors = total / 4;
+    const stage_vectors = length / 4;
+    const stage_vectors_mask = stage_vectors - 1;
+    const stride = length / 16;
+    const stride_mask = stride - 1;
+    const stride_inv_mask = ~stride_mask;
+
+    var unity_table_re = unity_table;
+    var unity_table_im = unity_table[length / 4 ..];
+
+    var index: u32 = 0;
+    while (index < total_vectors / 4) : (index += 1) {
+        const n = (index & stride_inv_mask) * 4 + (index & stride_mask);
+        fftButterflyDit4_4(
+            &re[n],
+            &re[n + stride],
+            &re[n + stride * 2],
+            &re[n + stride * 3],
+            &im[n],
+            &im[n + stride],
+            &im[n + stride * 2],
+            &im[n + stride * 3],
+            unity_table_re[(n & stage_vectors_mask)..],
+            unity_table_im[(n & stage_vectors_mask)..],
+            stride,
+            false,
+        );
+    }
+
+    if (length > 16 * 4) {
+        fftN(re, im, unity_table[(length / 2)..], length / 4, count * 4);
+    } else if (length == 16 * 4) {
+        fft16(re, im, count * 4);
+    } else if (length == 8 * 4) {
+        fft8(re, im, count * 4);
+    } else if (length == 4 * 4) {
+        fft4(re, im, count * 4);
+    }
+}
+test "zmath.fftN" {
+    var unity_table: [128]F32x4 = undefined;
+    const epsilon = 0.0001;
+
+    // 32 samples
+    {
+        var re = [_]F32x4{
+            f32x4(1.0, 2.0, 3.0, 4.0),     f32x4(5.0, 6.0, 7.0, 8.0),
+            f32x4(9.0, 10.0, 11.0, 12.0),  f32x4(13.0, 14.0, 15.0, 16.0),
+            f32x4(17.0, 18.0, 19.0, 20.0), f32x4(21.0, 22.0, 23.0, 24.0),
+            f32x4(25.0, 26.0, 27.0, 28.0), f32x4(29.0, 30.0, 31.0, 32.0),
+        };
+        var im = [_]F32x4{
+            f32x4s(0.0), f32x4s(0.0), f32x4s(0.0), f32x4s(0.0),
+            f32x4s(0.0), f32x4s(0.0), f32x4s(0.0), f32x4s(0.0),
+        };
+
+        fftInitUnityTable(unity_table[0..32]);
+        fft(re[0..], im[0..], unity_table[0..32]);
+
+        try expect(approxEqAbs(re[0], f32x4(528.0, -16.0, -16.0, -16.0), epsilon));
+        try expect(approxEqAbs(re[1], f32x4(-16.0, -16.0, -16.0, -16.0), epsilon));
+        try expect(approxEqAbs(re[2], f32x4(-16.0, -16.0, -16.0, -16.0), epsilon));
+        try expect(approxEqAbs(re[3], f32x4(-16.0, -16.0, -16.0, -16.0), epsilon));
+        try expect(approxEqAbs(re[4], f32x4(-16.0, -16.0, -16.0, -16.0), epsilon));
+        try expect(approxEqAbs(re[5], f32x4(-16.0, -16.0, -16.0, -16.0), epsilon));
+        try expect(approxEqAbs(re[6], f32x4(-16.0, -16.0, -16.0, -16.0), epsilon));
+        try expect(approxEqAbs(re[7], f32x4(-16.0, -16.0, -16.0, -16.0), epsilon));
+        try expect(approxEqAbs(im[0], f32x4(0.0, 162.450726, 80.437432, 52.744931), epsilon));
+        try expect(approxEqAbs(im[1], f32x4(38.627417, 29.933895, 23.945692, 19.496056), epsilon));
+        try expect(approxEqAbs(im[2], f32x4(16.0, 13.130861, 10.690858, 8.552178), epsilon));
+        try expect(approxEqAbs(im[3], f32x4(6.627417, 4.853547, 3.182598, 1.575862), epsilon));
+        try expect(approxEqAbs(im[4], f32x4(0.0, -1.575862, -3.182598, -4.853547), epsilon));
+        try expect(approxEqAbs(im[5], f32x4(-6.627417, -8.552178, -10.690858, -13.130861), epsilon));
+        try expect(approxEqAbs(im[6], f32x4(-16.0, -19.496056, -23.945692, -29.933895), epsilon));
+        try expect(approxEqAbs(im[7], f32x4(-38.627417, -52.744931, -80.437432, -162.450726), epsilon));
+    }
+
+    // 64 samples
+    {
+        var re = [_]F32x4{
+            f32x4(1.0, 2.0, 3.0, 4.0),     f32x4(5.0, 6.0, 7.0, 8.0),
+            f32x4(9.0, 10.0, 11.0, 12.0),  f32x4(13.0, 14.0, 15.0, 16.0),
+            f32x4(17.0, 18.0, 19.0, 20.0), f32x4(21.0, 22.0, 23.0, 24.0),
+            f32x4(25.0, 26.0, 27.0, 28.0), f32x4(29.0, 30.0, 31.0, 32.0),
+            f32x4(1.0, 2.0, 3.0, 4.0),     f32x4(5.0, 6.0, 7.0, 8.0),
+            f32x4(9.0, 10.0, 11.0, 12.0),  f32x4(13.0, 14.0, 15.0, 16.0),
+            f32x4(17.0, 18.0, 19.0, 20.0), f32x4(21.0, 22.0, 23.0, 24.0),
+            f32x4(25.0, 26.0, 27.0, 28.0), f32x4(29.0, 30.0, 31.0, 32.0),
+        };
+        var im = [_]F32x4{
+            f32x4s(0.0), f32x4s(0.0), f32x4s(0.0), f32x4s(0.0),
+            f32x4s(0.0), f32x4s(0.0), f32x4s(0.0), f32x4s(0.0),
+            f32x4s(0.0), f32x4s(0.0), f32x4s(0.0), f32x4s(0.0),
+            f32x4s(0.0), f32x4s(0.0), f32x4s(0.0), f32x4s(0.0),
+        };
+
+        fftInitUnityTable(unity_table[0..64]);
+        fft(re[0..], im[0..], unity_table[0..64]);
+
+        try expect(approxEqAbs(re[0], f32x4(1056.0, 0.0, -32.0, 0.0), epsilon));
+        var i: u32 = 1;
+        while (i < 16) : (i += 1) {
+            try expect(approxEqAbs(re[i], f32x4(-32.0, 0.0, -32.0, 0.0), epsilon));
+        }
+
+        const expected = [_]f32{
+            0.0,        0.0,      324.901452,  0.000000, 160.874864,  0.0,      105.489863,  0.000000,
+            77.254834,  0.0,      59.867789,   0.0,      47.891384,   0.0,      38.992113,   0.0,
+            32.000000,  0.000000, 26.261721,   0.000000, 21.381716,   0.000000, 17.104356,   0.000000,
+            13.254834,  0.000000, 9.707094,    0.000000, 6.365196,    0.000000, 3.151725,    0.000000,
+            0.000000,   0.000000, -3.151725,   0.000000, -6.365196,   0.000000, -9.707094,   0.000000,
+            -13.254834, 0.000000, -17.104356,  0.000000, -21.381716,  0.000000, -26.261721,  0.000000,
+            -32.000000, 0.000000, -38.992113,  0.000000, -47.891384,  0.000000, -59.867789,  0.000000,
+            -77.254834, 0.000000, -105.489863, 0.000000, -160.874864, 0.000000, -324.901452, 0.000000,
+        };
+        for (expected) |e, ie| {
+            try expect(std.math.approxEqAbs(f32, e, im[(ie / 4)][ie % 4], epsilon));
+        }
+    }
+
+    // 128 samples
+    {
+        var re = [_]F32x4{
+            f32x4(1.0, 2.0, 3.0, 4.0),     f32x4(5.0, 6.0, 7.0, 8.0),
+            f32x4(9.0, 10.0, 11.0, 12.0),  f32x4(13.0, 14.0, 15.0, 16.0),
+            f32x4(17.0, 18.0, 19.0, 20.0), f32x4(21.0, 22.0, 23.0, 24.0),
+            f32x4(25.0, 26.0, 27.0, 28.0), f32x4(29.0, 30.0, 31.0, 32.0),
+            f32x4(1.0, 2.0, 3.0, 4.0),     f32x4(5.0, 6.0, 7.0, 8.0),
+            f32x4(9.0, 10.0, 11.0, 12.0),  f32x4(13.0, 14.0, 15.0, 16.0),
+            f32x4(17.0, 18.0, 19.0, 20.0), f32x4(21.0, 22.0, 23.0, 24.0),
+            f32x4(25.0, 26.0, 27.0, 28.0), f32x4(29.0, 30.0, 31.0, 32.0),
+            f32x4(1.0, 2.0, 3.0, 4.0),     f32x4(5.0, 6.0, 7.0, 8.0),
+            f32x4(9.0, 10.0, 11.0, 12.0),  f32x4(13.0, 14.0, 15.0, 16.0),
+            f32x4(17.0, 18.0, 19.0, 20.0), f32x4(21.0, 22.0, 23.0, 24.0),
+            f32x4(25.0, 26.0, 27.0, 28.0), f32x4(29.0, 30.0, 31.0, 32.0),
+            f32x4(1.0, 2.0, 3.0, 4.0),     f32x4(5.0, 6.0, 7.0, 8.0),
+            f32x4(9.0, 10.0, 11.0, 12.0),  f32x4(13.0, 14.0, 15.0, 16.0),
+            f32x4(17.0, 18.0, 19.0, 20.0), f32x4(21.0, 22.0, 23.0, 24.0),
+            f32x4(25.0, 26.0, 27.0, 28.0), f32x4(29.0, 30.0, 31.0, 32.0),
+        };
+        var im = [_]F32x4{
+            f32x4s(0.0), f32x4s(0.0), f32x4s(0.0), f32x4s(0.0),
+            f32x4s(0.0), f32x4s(0.0), f32x4s(0.0), f32x4s(0.0),
+            f32x4s(0.0), f32x4s(0.0), f32x4s(0.0), f32x4s(0.0),
+            f32x4s(0.0), f32x4s(0.0), f32x4s(0.0), f32x4s(0.0),
+            f32x4s(0.0), f32x4s(0.0), f32x4s(0.0), f32x4s(0.0),
+            f32x4s(0.0), f32x4s(0.0), f32x4s(0.0), f32x4s(0.0),
+            f32x4s(0.0), f32x4s(0.0), f32x4s(0.0), f32x4s(0.0),
+            f32x4s(0.0), f32x4s(0.0), f32x4s(0.0), f32x4s(0.0),
+        };
+
+        fftInitUnityTable(unity_table[0..128]);
+        fft(re[0..], im[0..], unity_table[0..128]);
+
+        try expect(approxEqAbs(re[0], f32x4(2112.0, 0.0, 0.0, 0.0), epsilon));
+        var i: u32 = 1;
+        while (i < 32) : (i += 1) {
+            try expect(approxEqAbs(re[i], f32x4(-64.0, 0.0, 0.0, 0.0), epsilon));
+        }
+
+        const expected = [_]f32{
+            0.000000,    0.000000, 0.000000, 0.000000, 649.802905,  0.000000, 0.000000, 0.000000,
+            321.749727,  0.000000, 0.000000, 0.000000, 210.979725,  0.000000, 0.000000, 0.000000,
+            154.509668,  0.000000, 0.000000, 0.000000, 119.735578,  0.000000, 0.000000, 0.000000,
+            95.782769,   0.000000, 0.000000, 0.000000, 77.984226,   0.000000, 0.000000, 0.000000,
+            64.000000,   0.000000, 0.000000, 0.000000, 52.523443,   0.000000, 0.000000, 0.000000,
+            42.763433,   0.000000, 0.000000, 0.000000, 34.208713,   0.000000, 0.000000, 0.000000,
+            26.509668,   0.000000, 0.000000, 0.000000, 19.414188,   0.000000, 0.000000, 0.000000,
+            12.730392,   0.000000, 0.000000, 0.000000, 6.303450,    0.000000, 0.000000, 0.000000,
+            0.000000,    0.000000, 0.000000, 0.000000, -6.303450,   0.000000, 0.000000, 0.000000,
+            -12.730392,  0.000000, 0.000000, 0.000000, -19.414188,  0.000000, 0.000000, 0.000000,
+            -26.509668,  0.000000, 0.000000, 0.000000, -34.208713,  0.000000, 0.000000, 0.000000,
+            -42.763433,  0.000000, 0.000000, 0.000000, -52.523443,  0.000000, 0.000000, 0.000000,
+            -64.000000,  0.000000, 0.000000, 0.000000, -77.984226,  0.000000, 0.000000, 0.000000,
+            -95.782769,  0.000000, 0.000000, 0.000000, -119.735578, 0.000000, 0.000000, 0.000000,
+            -154.509668, 0.000000, 0.000000, 0.000000, -210.979725, 0.000000, 0.000000, 0.000000,
+            -321.749727, 0.000000, 0.000000, 0.000000, -649.802905, 0.000000, 0.000000, 0.000000,
+        };
+        for (expected) |e, ie| {
+            try expect(std.math.approxEqAbs(f32, e, im[(ie / 4)][ie % 4], epsilon));
+        }
+    }
+}
+
+fn fftUnswizzle(input: []const F32x4, output: []F32x4) void {
+    assert(std.math.isPowerOfTwo(input.len));
+    assert(input.len == output.len);
+    assert(input.ptr != output.ptr);
+
+    const log2_length = std.math.log2_int(usize, input.len * 4);
+    assert(log2_length >= 2);
+
+    const length = input.len;
+
+    const f32_output = @ptrCast([*]f32, output.ptr)[0 .. output.len * 4];
+
+    const static = struct {
+        const swizzle_table = [256]u8{
+            0x00, 0x40, 0x80, 0xC0, 0x10, 0x50, 0x90, 0xD0, 0x20, 0x60, 0xA0, 0xE0, 0x30, 0x70, 0xB0, 0xF0,
+            0x04, 0x44, 0x84, 0xC4, 0x14, 0x54, 0x94, 0xD4, 0x24, 0x64, 0xA4, 0xE4, 0x34, 0x74, 0xB4, 0xF4,
+            0x08, 0x48, 0x88, 0xC8, 0x18, 0x58, 0x98, 0xD8, 0x28, 0x68, 0xA8, 0xE8, 0x38, 0x78, 0xB8, 0xF8,
+            0x0C, 0x4C, 0x8C, 0xCC, 0x1C, 0x5C, 0x9C, 0xDC, 0x2C, 0x6C, 0xAC, 0xEC, 0x3C, 0x7C, 0xBC, 0xFC,
+            0x01, 0x41, 0x81, 0xC1, 0x11, 0x51, 0x91, 0xD1, 0x21, 0x61, 0xA1, 0xE1, 0x31, 0x71, 0xB1, 0xF1,
+            0x05, 0x45, 0x85, 0xC5, 0x15, 0x55, 0x95, 0xD5, 0x25, 0x65, 0xA5, 0xE5, 0x35, 0x75, 0xB5, 0xF5,
+            0x09, 0x49, 0x89, 0xC9, 0x19, 0x59, 0x99, 0xD9, 0x29, 0x69, 0xA9, 0xE9, 0x39, 0x79, 0xB9, 0xF9,
+            0x0D, 0x4D, 0x8D, 0xCD, 0x1D, 0x5D, 0x9D, 0xDD, 0x2D, 0x6D, 0xAD, 0xED, 0x3D, 0x7D, 0xBD, 0xFD,
+            0x02, 0x42, 0x82, 0xC2, 0x12, 0x52, 0x92, 0xD2, 0x22, 0x62, 0xA2, 0xE2, 0x32, 0x72, 0xB2, 0xF2,
+            0x06, 0x46, 0x86, 0xC6, 0x16, 0x56, 0x96, 0xD6, 0x26, 0x66, 0xA6, 0xE6, 0x36, 0x76, 0xB6, 0xF6,
+            0x0A, 0x4A, 0x8A, 0xCA, 0x1A, 0x5A, 0x9A, 0xDA, 0x2A, 0x6A, 0xAA, 0xEA, 0x3A, 0x7A, 0xBA, 0xFA,
+            0x0E, 0x4E, 0x8E, 0xCE, 0x1E, 0x5E, 0x9E, 0xDE, 0x2E, 0x6E, 0xAE, 0xEE, 0x3E, 0x7E, 0xBE, 0xFE,
+            0x03, 0x43, 0x83, 0xC3, 0x13, 0x53, 0x93, 0xD3, 0x23, 0x63, 0xA3, 0xE3, 0x33, 0x73, 0xB3, 0xF3,
+            0x07, 0x47, 0x87, 0xC7, 0x17, 0x57, 0x97, 0xD7, 0x27, 0x67, 0xA7, 0xE7, 0x37, 0x77, 0xB7, 0xF7,
+            0x0B, 0x4B, 0x8B, 0xCB, 0x1B, 0x5B, 0x9B, 0xDB, 0x2B, 0x6B, 0xAB, 0xEB, 0x3B, 0x7B, 0xBB, 0xFB,
+            0x0F, 0x4F, 0x8F, 0xCF, 0x1F, 0x5F, 0x9F, 0xDF, 0x2F, 0x6F, 0xAF, 0xEF, 0x3F, 0x7F, 0xBF, 0xFF,
+        };
+    };
+
+    if ((log2_length & 1) == 0) {
+        const rev32 = @intCast(u6, 32 - log2_length);
+        var index: usize = 0;
+        while (index < length) : (index += 1) {
+            const n = index * 4;
+            const addr =
+                (@intCast(usize, static.swizzle_table[n & 0xff]) << 24) |
+                (@intCast(usize, static.swizzle_table[(n >> 8) & 0xff]) << 16) |
+                (@intCast(usize, static.swizzle_table[(n >> 16) & 0xff]) << 8) |
+                @intCast(usize, static.swizzle_table[(n >> 24) & 0xff]);
+            f32_output[addr >> rev32] = input[index][0];
+            f32_output[(0x40000000 | addr) >> rev32] = input[index][1];
+            f32_output[(0x80000000 | addr) >> rev32] = input[index][2];
+            f32_output[(0xC0000000 | addr) >> rev32] = input[index][3];
+        }
+    } else {
+        const rev7 = @as(usize, 1) << @intCast(u6, log2_length - 3);
+        const rev32 = @intCast(u6, 32 - (log2_length - 3));
+        var index: usize = 0;
+        while (index < length) : (index += 1) {
+            const n = index / 2;
+            var addr =
+                (((@intCast(usize, static.swizzle_table[n & 0xff]) << 24) |
+                (@intCast(usize, static.swizzle_table[(n >> 8) & 0xff]) << 16) |
+                (@intCast(usize, static.swizzle_table[(n >> 16) & 0xff]) << 8) |
+                (@intCast(usize, static.swizzle_table[(n >> 24) & 0xff]))) >> rev32) |
+                ((index & 1) * rev7 * 4);
+            f32_output[addr] = input[index][0];
+            addr += rev7;
+            f32_output[addr] = input[index][1];
+            addr += rev7;
+            f32_output[addr] = input[index][2];
+            addr += rev7;
+            f32_output[addr] = input[index][3];
+        }
+    }
+}
+
+pub fn fftInitUnityTable(out_unity_table: []F32x4) void {
+    assert(std.math.isPowerOfTwo(out_unity_table.len));
+    assert(out_unity_table.len >= 32 and out_unity_table.len <= 512);
+
+    var unity_table = out_unity_table;
+
+    const v0123 = f32x4(0.0, 1.0, 2.0, 3.0);
+    var length = out_unity_table.len / 4;
+    var vlstep = f32x4s(0.5 * math.pi / @intToFloat(f32, length));
+
+    while (true) {
+        length /= 4;
+        var vjp = v0123;
+
+        var j: u32 = 0;
+        while (j < length) : (j += 1) {
+            unity_table[j] = f32x4s(1.0);
+            unity_table[j + length * 4] = f32x4s(0.0);
+
+            var vls = vjp * vlstep;
+            var sin_cos = sincos(vls);
+            unity_table[j + length] = sin_cos[1];
+            unity_table[j + length * 5] = sin_cos[0] * f32x4s(-1.0);
+
+            var vijp = vjp + vjp;
+            vls = vijp * vlstep;
+            sin_cos = sincos(vls);
+            unity_table[j + length * 2] = sin_cos[1];
+            unity_table[j + length * 6] = sin_cos[0] * f32x4s(-1.0);
+
+            vijp = vijp + vjp;
+            vls = vijp * vlstep;
+            sin_cos = sincos(vls);
+            unity_table[j + length * 3] = sin_cos[1];
+            unity_table[j + length * 7] = sin_cos[0] * f32x4s(-1.0);
+
+            vjp += f32x4s(4.0);
+        }
+        vlstep *= f32x4s(4.0);
+        unity_table = unity_table[8 * length ..];
+
+        if (length <= 4)
+            break;
+    }
+}
+
+pub fn fft(re: []F32x4, im: []F32x4, unity_table: []const F32x4) void {
+    const length = @intCast(u32, re.len * 4);
+    assert(std.math.isPowerOfTwo(length));
+    assert(length >= 4 and length <= 512);
+    assert(re.len == im.len);
+
+    var re_temp_storage: [128]F32x4 = undefined;
+    var im_temp_storage: [128]F32x4 = undefined;
+    var re_temp = re_temp_storage[0..re.len];
+    var im_temp = im_temp_storage[0..im.len];
+
+    std.mem.copy(F32x4, re_temp, re);
+    std.mem.copy(F32x4, im_temp, im);
+
+    if (length > 16) {
+        assert(unity_table.len == length);
+        fftN(re_temp, im_temp, unity_table, length, 1);
+    } else if (length == 16) {
+        fft16(re_temp, im_temp, 1);
+    } else if (length == 8) {
+        fft8(re_temp, im_temp, 1);
+    } else if (length == 4) {
+        fft4(re_temp, im_temp, 1);
+    }
+
+    fftUnswizzle(re_temp, re);
+    fftUnswizzle(im_temp, im);
+}
+
+pub fn ifft(re: []F32x4, im: []const F32x4, unity_table: []const F32x4) void {
+    const length = @intCast(u32, re.len * 4);
+    assert(std.math.isPowerOfTwo(length));
+    assert(length >= 4 and length <= 512);
+    assert(re.len == im.len);
+
+    var re_temp_storage: [128]F32x4 = undefined;
+    var im_temp_storage: [128]F32x4 = undefined;
+    var re_temp = re_temp_storage[0..re.len];
+    var im_temp = im_temp_storage[0..im.len];
+
+    const rnp = f32x4s(1.0 / @intToFloat(f32, length));
+    const rnm = f32x4s(-1.0 / @intToFloat(f32, length));
+
+    for (re) |_, i| {
+        re_temp[i] = re[i] * rnp;
+        im_temp[i] = im[i] * rnm;
+    }
+
+    if (length > 16) {
+        assert(unity_table.len == length);
+        fftN(re_temp, im_temp, unity_table, length, 1);
+    } else if (length == 16) {
+        fft16(re_temp, im_temp, 1);
+    } else if (length == 8) {
+        fft8(re_temp, im_temp, 1);
+    } else if (length == 4) {
+        fft4(re_temp, im_temp, 1);
+    }
+
+    fftUnswizzle(re_temp, re);
+}
+test "zmath.ifft" {
+    var unity_table: [512]F32x4 = undefined;
+    const epsilon = 0.0001;
+
+    // 64 samples
+    {
+        var re = [_]F32x4{
+            f32x4(1.0, 2.0, 3.0, 4.0),     f32x4(5.0, 6.0, 7.0, 8.0),
+            f32x4(9.0, 10.0, 11.0, 12.0),  f32x4(13.0, 14.0, 15.0, 16.0),
+            f32x4(17.0, 18.0, 19.0, 20.0), f32x4(21.0, 22.0, 23.0, 24.0),
+            f32x4(25.0, 26.0, 27.0, 28.0), f32x4(29.0, 30.0, 31.0, 32.0),
+            f32x4(1.0, 2.0, 3.0, 4.0),     f32x4(5.0, 6.0, 7.0, 8.0),
+            f32x4(9.0, 10.0, 11.0, 12.0),  f32x4(13.0, 14.0, 15.0, 16.0),
+            f32x4(17.0, 18.0, 19.0, 20.0), f32x4(21.0, 22.0, 23.0, 24.0),
+            f32x4(25.0, 26.0, 27.0, 28.0), f32x4(29.0, 30.0, 31.0, 32.0),
+        };
+        var im = [_]F32x4{
+            f32x4s(0.0), f32x4s(0.0), f32x4s(0.0), f32x4s(0.0),
+            f32x4s(0.0), f32x4s(0.0), f32x4s(0.0), f32x4s(0.0),
+            f32x4s(0.0), f32x4s(0.0), f32x4s(0.0), f32x4s(0.0),
+            f32x4s(0.0), f32x4s(0.0), f32x4s(0.0), f32x4s(0.0),
+        };
+
+        fftInitUnityTable(unity_table[0..64]);
+        fft(re[0..], im[0..], unity_table[0..64]);
+
+        try expect(approxEqAbs(re[0], f32x4(1056.0, 0.0, -32.0, 0.0), epsilon));
+        var i: u32 = 1;
+        while (i < 16) : (i += 1) {
+            try expect(approxEqAbs(re[i], f32x4(-32.0, 0.0, -32.0, 0.0), epsilon));
+        }
+
+        ifft(re[0..], im[0..], unity_table[0..64]);
+
+        try expect(approxEqAbs(re[0], f32x4(1.0, 2.0, 3.0, 4.0), epsilon));
+        try expect(approxEqAbs(re[1], f32x4(5.0, 6.0, 7.0, 8.0), epsilon));
+        try expect(approxEqAbs(re[2], f32x4(9.0, 10.0, 11.0, 12.0), epsilon));
+        try expect(approxEqAbs(re[3], f32x4(13.0, 14.0, 15.0, 16.0), epsilon));
+        try expect(approxEqAbs(re[4], f32x4(17.0, 18.0, 19.0, 20.0), epsilon));
+        try expect(approxEqAbs(re[5], f32x4(21.0, 22.0, 23.0, 24.0), epsilon));
+        try expect(approxEqAbs(re[6], f32x4(25.0, 26.0, 27.0, 28.0), epsilon));
+        try expect(approxEqAbs(re[7], f32x4(29.0, 30.0, 31.0, 32.0), epsilon));
+    }
+
+    // 512 samples
+    {
+        var re: [128]F32x4 = undefined;
+        var im = [_]F32x4{f32x4s(0.0)} ** 128;
+
+        for (re) |*v, i| {
+            const f = @intToFloat(f32, i * 4);
+            v.* = f32x4(f + 1.0, f + 2.0, f + 3.0, f + 4.0);
+        }
+
+        fftInitUnityTable(unity_table[0..512]);
+        fft(re[0..], im[0..], unity_table[0..512]);
+
+        for (re) |v, i| {
+            const f = @intToFloat(f32, i * 4);
+            try expect(!approxEqAbs(v, f32x4(f + 1.0, f + 2.0, f + 3.0, f + 4.0), epsilon));
+        }
+
+        ifft(re[0..], im[0..], unity_table[0..512]);
+
+        for (re) |v, i| {
+            const f = @intToFloat(f32, i * 4);
+            try expect(approxEqAbs(v, f32x4(f + 1.0, f + 2.0, f + 3.0, f + 4.0), epsilon));
+        }
+    }
 }
 
 // ------------------------------------------------------------------------------
@@ -3031,8 +4205,8 @@ test "zmath.floatToIntAndBack" {
     }
 }
 
-fn approxEqAbs(v0: anytype, v1: anytype, eps: f32) bool {
-    const T = @TypeOf(v0);
+pub fn approxEqAbs(v0: anytype, v1: anytype, eps: f32) bool {
+    const T = @TypeOf(v0, v1);
     comptime var i: comptime_int = 0;
     inline while (i < veclen(T)) : (i += 1) {
         if (!math.approxEqAbs(f32, v0[i], v1[i], eps)) {
