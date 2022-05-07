@@ -8,10 +8,9 @@
             "name": "Debug",
             "type": "gdb",
             "request": "launch",
-            // Each new build will generate new hash that needs to be written here
-            "target": "./zig-cache/o/9d5c0c5e2f825d35cf91769c6791907a/test",
+            "target": "./zig-out/ziggyimgtest",
             "cwd": "${workspaceRoot}",
-            "arguments": "/home/igors/git/zig/build/zig",
+            "arguments": "../zig/build/zig",
             "valuesFormatting": "parseText",
             "stopAtEntry": false
         }
