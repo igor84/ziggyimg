@@ -1,0 +1,19 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug",
+            "type": "gdb",
+            "request": "launch",
+            // Each new build will generate new hash that needs to be written here
+            "target": "./zig-cache/o/9d5c0c5e2f825d35cf91769c6791907a/test",
+            "cwd": "${workspaceRoot}",
+            "arguments": "/home/igors/git/zig/build/zig",
+            "valuesFormatting": "parseText",
+            "stopAtEntry": false
+        }
+    ]
+}
