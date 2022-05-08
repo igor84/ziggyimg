@@ -329,7 +329,7 @@ fn Reader(comptime is_from_file: bool) type {
 
             if (result.getPallete()) |dest_palette| {
                 for (palette) |entry, n| {
-                    dest_palette[n] = entry.toColorf32();
+                    dest_palette[n] = entry.toRgba32();
                 }
                 try processPalette(options, dest_palette);
             }
@@ -487,7 +487,7 @@ fn Reader(comptime is_from_file: bool) type {
             return result;
         }
 
-        fn processPalette(options: *const ReaderOptions, palette: []color.Colorf32) ImageParsingError!void {
+        fn processPalette(options: *const ReaderOptions, palette: []color.Rgba32) ImageParsingError!void {
             var process_data = PaletteProcessData{ .palette = palette, .temp_allocator = options.temp_allocator.? };
             for (options.processors) |*processor| {
                 try processor.processPalette(&process_data);
@@ -605,7 +605,7 @@ pub const ChunkProcessData = struct {
 };
 
 pub const PaletteProcessData = struct {
-    palette: []color.Colorf32,
+    palette: []color.Rgba32,
     temp_allocator: Allocator,
 };
 
@@ -749,7 +749,7 @@ pub const TrnsProcessor = struct {
         switch (self.trns_data) {
             .index_alpha => |index_alpha| {
                 for (index_alpha) |alpha, i| {
-                    data.palette[i].a = color.toF32Color(alpha);
+                    data.palette[i].a = alpha;
                 }
             },
             .unset => return,

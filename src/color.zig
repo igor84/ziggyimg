@@ -266,6 +266,15 @@ fn RgbColor(comptime ComponentType: type) type {
                 .a = 1.0,
             };
         }
+
+        pub fn toRgba32(self: Self) Rgba32 {
+            const max = math.maxInt(ComponentType);
+            return Rgba32.initRgb(
+                @truncate(u8, @intCast(u32, self.r) * 255 / max),
+                @truncate(u8, @intCast(u32, self.g) * 255 / max),
+                @truncate(u8, @intCast(u32, self.b) * 255 / max),
+            );
+        }
     };
 }
 

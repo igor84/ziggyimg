@@ -22,7 +22,7 @@ const Colorf32 = color.Colorf32;
 
 pub fn IndexedStorage(comptime T: type) type {
     return struct {
-        palette: []Colorf32,
+        palette: []Rgba32,
         indices: []T,
 
         pub const palette_size = 1 << @bitSizeOf(T);
@@ -32,7 +32,7 @@ pub fn IndexedStorage(comptime T: type) type {
         pub fn init(allocator: Allocator, pixel_count: usize) !Self {
             return Self{
                 .indices = try allocator.alloc(T, pixel_count),
-                .palette = try allocator.alloc(Colorf32, palette_size),
+                .palette = try allocator.alloc(Rgba32, palette_size),
             };
         }
 
@@ -247,7 +247,7 @@ pub const PixelStorage = union(PixelFormat) {
         };
     }
 
-    pub fn getPallete(self: Self) ?[]Colorf32 {
+    pub fn getPallete(self: Self) ?[]Rgba32 {
         return switch (self) {
             .index1 => |data| data.palette,
             .index2 => |data| data.palette,
@@ -309,11 +309,11 @@ pub const PixelStorageIterator = struct {
         }
 
         const result: ?Colorf32 = switch (self.pixels.*) {
-            .index1 => |data| data.palette[data.indices[self.current_index]],
-            .index2 => |data| data.palette[data.indices[self.current_index]],
-            .index4 => |data| data.palette[data.indices[self.current_index]],
-            .index8 => |data| data.palette[data.indices[self.current_index]],
-            .index16 => |data| data.palette[data.indices[self.current_index]],
+            .index1 => |data| data.palette[data.indices[self.current_index]].toColorf32(),
+            .index2 => |data| data.palette[data.indices[self.current_index]].toColorf32(),
+            .index4 => |data| data.palette[data.indices[self.current_index]].toColorf32(),
+            .index8 => |data| data.palette[data.indices[self.current_index]].toColorf32(),
+            .index16 => |data| data.palette[data.indices[self.current_index]].toColorf32(),
             .grayscale1 => |data| data[self.current_index].toColorf32(),
             .grayscale2 => |data| data[self.current_index].toColorf32(),
             .grayscale4 => |data| data[self.current_index].toColorf32(),
@@ -345,8 +345,8 @@ test "Indexed Pixel Storage" {
     try std.testing.expectEqual(@as(usize, 64), storage.len());
     try std.testing.expect(storage.isIndexed());
     std.mem.set(u8, storage.index8.indices, 0);
-    storage.index8.palette[0] = Colorf32.fromU32Rgba(0);
-    storage.index8.palette[1] = Colorf32.fromU32Rgba(0xffffffff);
+    storage.index8.palette[0] = Rgba32.fromValue(0);
+    storage.index8.palette[1] = Rgba32.fromValue(0xffffffff);
     storage.index8.indices[0] = 1;
     var iterator = PixelStorageIterator.init(&storage);
     var cnt: u32 = 0;
