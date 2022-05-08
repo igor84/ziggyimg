@@ -9,7 +9,7 @@ pub fn main() !void {
     var timer = try std.time.Timer.start();
     defer std.debug.print("{s} took {}\n", .{@src().fn_name, std.fmt.fmtDuration(timer.read())});
     defer png_reader.printProfData();
-    try png_reader.testWithDir("../ziggyimg_tests/fixtures/png/");
+    try png_reader.testWithDir("../ziggyimg-tests/fixtures/png/");
 }
 
 test {
