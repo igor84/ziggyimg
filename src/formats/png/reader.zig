@@ -199,25 +199,7 @@ fn Reader(comptime is_from_file: bool) type {
             options: ReaderOptions,
         ) ImageParsingError!PixelStorage {
             var opts = options;
-            if (options.temp_allocator != null) {
-                return try doLoad(self, header, allocator, &opts);
-            }
-            return try prepareTmpAllocatorAndLoad(self, header, allocator, &opts);
-        }
-
-        pub fn prepareTmpAllocatorAndLoad(
-            self: *Self,
-            header: *const png.HeaderData,
-            allocator: Allocator,
-            options: *const ReaderOptions,
-        ) ImageParsingError!PixelStorage {
-            // decompressor.zig:294 claims to use up to 300KiB from provided allocator but when
-            // testing with huge png file it used 760KiB.
-            // Original zlib claims it only needs 44KiB so next task is to rewrite zig's zlib :).
-            var tmp_buffer: [800 * 1024]u8 = undefined;
-            var new_options = options.*;
-            new_options.temp_allocator = std.heap.FixedBufferAllocator.init(tmp_buffer[0..]).allocator();
-            return try doLoad(self, header, allocator, &new_options);
+            return try doLoad(self, header, allocator, &opts);
         }
 
         fn asU32(str: *const [4:0]u8) u32 {
@@ -239,7 +221,7 @@ fn Reader(comptime is_from_file: bool) type {
                 .chunk_length = @sizeOf(png.HeaderData),
                 .current_format = header.getPixelFormat(),
                 .header = header,
-                .temp_allocator = options.temp_allocator.?,
+                .temp_allocator = options.temp_allocator,
             };
             try Common.processChunk(options.processors, png.HeaderData.chunk_type_id, &chunk_process_data);
 
@@ -280,7 +262,7 @@ fn Reader(comptime is_from_file: bool) type {
                                 const palette_bytes = try self.raw_reader.readNoAlloc(chunk_length);
                                 palette = std.mem.bytesAsSlice(png.PaletteType, palette_bytes);
                             } else {
-                                palette = try options.temp_allocator.?.alloc(color.Rgb24, length);
+                                palette = try options.temp_allocator.alloc(color.Rgb24, length);
                                 const filled = try self.raw_reader.read(mem.sliceAsBytes(palette));
                                 if (filled != palette.len * @sizeOf(color.Rgb24)) return error.EndOfStream;
                             }
@@ -321,7 +303,7 @@ fn Reader(comptime is_from_file: bool) type {
             errdefer result.deinit(allocator);
             var idat_chunks_reader = IDatChunksReader.init(&self.raw_reader, options.processors, chunk_process_data);
             var idat_reader: IDATReader = .{ .context = &idat_chunks_reader };
-            var decompressStream = std.compress.zlib.zlibStream(options.temp_allocator.?, idat_reader) catch return error.InvalidData;
+            var decompressStream = std.compress.zlib.zlibStream(options.temp_allocator, idat_reader) catch return error.InvalidData;
 
             if (result.getPallete()) |dest_palette| {
                 for (palette) |entry, n| {
@@ -340,7 +322,7 @@ fn Reader(comptime is_from_file: bool) type {
             var tmpbytes = 2 * virtual_line_bytes;
             // For deinterlacing we also need one temporary row of resulting pixels
             if (header.interlace_method == .adam7) tmpbytes += result_line_bytes;
-            var tmp_allocator = if (tmpbytes < 128 * 1024) options.temp_allocator.? else allocator;
+            var tmp_allocator = if (tmpbytes < 128 * 1024) options.temp_allocator else allocator;
             var tmp_buffer = try tmp_allocator.alloc(u8, tmpbytes);
             defer tmp_allocator.free(tmp_buffer);
             mem.set(u8, tmp_buffer, 0);
@@ -354,7 +336,7 @@ fn Reader(comptime is_from_file: bool) type {
                 .src_format = header.getPixelFormat(),
                 .dest_format = dest_format,
                 .header = header,
-                .temp_allocator = options.temp_allocator.?,
+                .temp_allocator = options.temp_allocator,
             };
 
             if (header.interlace_method == .none) {
@@ -484,7 +466,7 @@ fn Reader(comptime is_from_file: bool) type {
         }
 
         fn processPalette(options: *const ReaderOptions, palette: []color.Rgba32) ImageParsingError!void {
-            var process_data = PaletteProcessData{ .palette = palette, .temp_allocator = options.temp_allocator.? };
+            var process_data = PaletteProcessData{ .palette = palette, .temp_allocator = options.temp_allocator };
             for (options.processors) |*processor| {
                 try processor.processPalette(&process_data);
             }
@@ -813,25 +795,76 @@ pub const TrnsProcessor = struct {
     }
 };
 
+/// The options you need to pass to PNG reader. If you want default options
+/// with buffer for temporary allocations on the stack and default set of
+/// processors just use this:
+/// var def_options = DefOptions{};
+/// png_reader.load(main_allocator, def_options.get());
+/// Note that application can define its own DefPngOptions in the root file
+/// and all the code that uses DefOptions will actually use that.
 pub const ReaderOptions = struct {
-    /// Allocator for temporary allocations. Max 500KiB will be allocated from it.
-    /// If not provided Reader will use stack memory. Some temp allocations depend
+    /// Allocator for temporary allocations. The consant required_temp_bytes defines
+    /// the maximum bytes that will be allocated from it. Some temp allocations depend
     /// on image size so they will use the main allocator since we can't guarantee
     /// they are bounded. They will be allocated after the destination image to
     /// reduce memory fragmentation and freed internally.
-    temp_allocator: ?Allocator = null,
+    temp_allocator: Allocator,
 
     /// Default is no processors so they are not even compiled in if not used.
-    /// If you want a default set of processors you can pass in predefined
-    /// def_processors array or just use predefined def_options.
+    /// If you want a default set of processors create a DefProcessors object
+    /// call get() on it and pass that here.
+    /// Note that application can define its own DefPngProcessors and all the
+    /// code that uses DefProcessors will actually use that.
     processors: []ReaderProcessor = &[_]ReaderProcessor{},
+
+    pub fn init(temp_allocator: Allocator) ReaderOptions {
+        return .{ .temp_allocator = temp_allocator };
+    }
+
+    pub fn initWithProcessors(temp_allocator: Allocator, processors: []ReaderProcessor) ReaderOptions {
+        return .{ .temp_allocator = temp_allocator, .processors = processors };
+    }
 };
 
-var trnsProcessor = TrnsProcessor{};
+// decompressor.zig:294 claims to use up to 300KiB from provided allocator but when
+// testing with huge png file it used 760KiB.
+// Original zlib claims it only needs 44KiB so next task is to rewrite zig's zlib :).
+pub const required_temp_bytes = 800 * 1024;
 
-var def_processors_array = [_]ReaderProcessor{trnsProcessor.processor()};
-pub var def_processors: []ReaderProcessor = def_processors_array[0..];
-pub var def_options = ReaderOptions{ .processors = def_processors_array[0..] };
+const root = @import("root");
+
+/// Applications can override this by defining DefPngProcessors struct in their root source file.
+pub const DefProcessors = if (@hasDecl(root, "DefPngProcessors"))
+    root.DefPngProcessors
+else
+    struct {
+        trns_processor: TrnsProcessor = .{},
+        processors_buffer: [1]ReaderProcessor = undefined,
+
+        const Self = @This();
+
+        pub fn get(self: *Self) []ReaderProcessor {
+            self.processors_buffer[0] = self.trns_processor.processor();
+            return self.processors_buffer[0..];
+        }
+    };
+
+/// Applications can override this by defining DefPngOptions struct in their root source file.
+pub const DefOptions = if (@hasDecl(root, "DefPngOptions"))
+    root.DefPngOptions
+else
+    struct {
+        def_processors: DefProcessors = .{},
+        tmp_buffer: [required_temp_bytes]u8 = undefined,
+        fb_allocator: std.heap.FixedBufferAllocator = undefined,
+
+        const Self = @This();
+
+        pub fn get(self: *Self) ReaderOptions {
+            self.fb_allocator = std.heap.FixedBufferAllocator.init(self.tmp_buffer[0..]);
+            return .{ .temp_allocator = self.fb_allocator.allocator(), .processors = self.def_processors.get() };
+        }
+    };
 
 // ********************* TESTS *********************
 
@@ -1069,13 +1102,14 @@ pub fn testWithDir(directory: []const u8) !void {
                 continue;
             }
 
+            var def_options = DefOptions{};
             var header = try reader.loadHeader();
             if (entry.name[0] == 'x') {
-                try std.testing.expectError(error.InvalidData, reader.loadWithHeader(&header, std.testing.allocator, .{}));
+                try std.testing.expectError(error.InvalidData, reader.loadWithHeader(&header, std.testing.allocator, def_options.get()));
                 continue;
             }
 
-            var result = try reader.loadWithHeader(&header, std.testing.allocator, def_options);
+            var result = try reader.loadWithHeader(&header, std.testing.allocator, def_options.get());
             defer result.deinit(std.testing.allocator);
             var result_bytes = result.pixelsAsBytes();
             var md5_val = [_]u8{0} ** 16;
