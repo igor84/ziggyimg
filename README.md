@@ -21,6 +21,5 @@ zig build test
 ```
 
 ## TODO
-- [ ] Implement RGB processor that converts palette to rgb
 - [ ] Add named colors
 - [ ] Provide fast way for most often needed sRGB to Linear and Linear to sRGB conversion

@@ -199,6 +199,10 @@ fn Reader(comptime is_from_file: bool) type {
             options: ReaderOptions,
         ) ImageParsingError!PixelStorage {
             var opts = options;
+            var tmp_allocator = options.temp_allocator;
+            var fb_allocator = std.heap.FixedBufferAllocator.init(try tmp_allocator.alloc(u8, required_temp_bytes));
+            defer tmp_allocator.free(fb_allocator.buffer);
+            opts.temp_allocator = fb_allocator.allocator();
             return try doLoad(self, header, allocator, &opts);
         }
 
@@ -305,7 +309,11 @@ fn Reader(comptime is_from_file: bool) type {
             var idat_reader: IDATReader = .{ .context = &idat_chunks_reader };
             var decompressStream = std.compress.zlib.zlibStream(options.temp_allocator, idat_reader) catch return error.InvalidData;
 
-            if (result.getPallete()) |dest_palette| {
+            if (palette.len > 0) {
+                var dest_palette = if (result.getPallete()) |res_palette|
+                    res_palette
+                else
+                    try options.temp_allocator.alloc(color.Rgba32, palette.len);
                 for (palette) |entry, n| {
                     dest_palette[n] = entry.toRgba32();
                 }
@@ -682,24 +690,24 @@ pub const TrnsProcessor = struct {
     }
 
     pub fn processChunk(self: *Self, data: *ChunkProcessData) ImageParsingError!PixelFormat {
-        // We will allow multiple tRNS chunks and load the last one
+        // We will allow multiple tRNS chunks and load the first one
         // We ignore if we encounter this chunk with color_type that already has alpha
         var result_format = data.current_format;
         if (self.processed) {
             try data.raw_reader.seekBy(data.chunk_length + @sizeOf(u32)); // Skip invalid
             return result_format;
         }
-        switch (data.header.color_type) {
-            .grayscale => {
-                if (data.chunk_length == 2 and result_format.isJustGrayscale()) {
+        switch (result_format) {
+            .grayscale1, .grayscale2, .grayscale4, .grayscale8, .grayscale16 => {
+                if (data.chunk_length == 2) {
                     self.trns_data = .{ .gray = try data.raw_reader.readIntBig(u16) };
-                    result_format = if (data.header.bit_depth == 16) .grayscale16Alpha else .grayscale8Alpha;
+                    result_format = if (result_format == .grayscale16) .grayscale16Alpha else .grayscale8Alpha;
                 } else {
                     try data.raw_reader.seekBy(data.chunk_length); // Skip invalid
                 }
             },
-            .indexed => {
-                if (data.chunk_length <= data.header.maxPaletteSize() and result_format.isIndex()) {
+            .index1, .index2, .index4, .index8, .index16 => {
+                if (data.chunk_length <= data.header.maxPaletteSize()) {
                     self.trns_data = .{ .index_alpha = try data.temp_allocator.alloc(u8, data.chunk_length) };
                     const filled = try data.raw_reader.read(self.trns_data.index_alpha);
                     if (filled != self.trns_data.index_alpha.len) return error.EndOfStream;
@@ -707,10 +715,10 @@ pub const TrnsProcessor = struct {
                     try data.raw_reader.seekBy(data.chunk_length); // Skip invalid
                 }
             },
-            .rgb_color => {
-                if (data.chunk_length == @sizeOf(color.Rgb48) and result_format.isStandardRgb()) {
+            .rgb24, .rgb48 => {
+                if (data.chunk_length == @sizeOf(color.Rgb48)) {
                     self.trns_data = .{ .rgb = (try data.raw_reader.readStruct(color.Rgb48)).* };
-                    result_format = if (data.header.bit_depth == 16) .rgba64 else .rgba32;
+                    result_format = if (result_format == .rgb48) .rgba64 else .rgba32;
                 } else {
                     try data.raw_reader.seekBy(data.chunk_length); // Skip invalid
                 }
@@ -795,6 +803,77 @@ pub const TrnsProcessor = struct {
     }
 };
 
+pub const PlteProcessor = struct {
+    const Self = @This();
+
+    palette: []color.Rgba32 = undefined,
+    processed: bool = false,
+
+    pub fn processor(self: *Self) ReaderProcessor {
+        return ReaderProcessor.init(
+            "PLTE",
+            self,
+            processChunk,
+            processPalette,
+            processDataRow,
+        );
+    }
+
+    pub fn processChunk(self: *Self, data: *ChunkProcessData) ImageParsingError!PixelFormat {
+        // This is critical chunk so it is already read and there is no need to read it here
+        var result_format = data.current_format;
+        if (self.processed or !result_format.isIndex()) {
+            self.processed = true;
+            return result_format;
+        }
+
+        return .rgba32;
+    }
+
+    pub fn processPalette(self: *Self, data: *PaletteProcessData) ImageParsingError!void {
+        self.processed = true;
+        self.palette = data.palette;
+    }
+
+    pub fn processDataRow(self: *Self, data: *RowProcessData) ImageParsingError!PixelFormat {
+        self.processed = true;
+        if (!data.src_format.isIndex() or self.palette.len == 0) return data.src_format;
+        var pixel_stride: u8 = switch (data.dest_format) {
+            .rgba32, .bgra32 => 4,
+            .rgba64 => 8,
+            else => return data.src_format,
+        };
+
+        var pixel_pos: u32 = 0;
+        switch (data.src_format) {
+            .index1, .index2, .index4, .index8 => {
+                while (pixel_pos + 3 < data.dest_row.len) : (pixel_pos += pixel_stride) {
+                    const index = data.dest_row[pixel_pos];
+                    const entry = self.palette[index];
+                    data.dest_row[pixel_pos] = entry.r;
+                    data.dest_row[pixel_pos + 1] = entry.g;
+                    data.dest_row[pixel_pos + 2] = entry.b;
+                    data.dest_row[pixel_pos + 3] = entry.a;
+                }
+            },
+            .index16 => {
+                while (pixel_pos + 3 < data.dest_row.len) : (pixel_pos += pixel_stride) {
+                    //const index_buf: [2]u8 = .{data.dest_row[pixel_pos], data.dest_row[pixel_pos + 1]};
+                    const index = std.mem.bytesToValue(u16, &[2]u8{ data.dest_row[pixel_pos], data.dest_row[pixel_pos + 1] });
+                    const entry = self.palette[index];
+                    data.dest_row[pixel_pos] = entry.r;
+                    data.dest_row[pixel_pos + 1] = entry.g;
+                    data.dest_row[pixel_pos + 2] = entry.b;
+                    data.dest_row[pixel_pos + 3] = entry.a;
+                }
+            },
+            else => unreachable,
+        }
+
+        return .rgba32;
+    }
+};
+
 /// The options you need to pass to PNG reader. If you want default options
 /// with buffer for temporary allocations on the stack and default set of
 /// processors just use this:
@@ -839,12 +918,14 @@ pub const DefProcessors = if (@hasDecl(root, "DefPngProcessors"))
 else
     struct {
         trns_processor: TrnsProcessor = .{},
-        processors_buffer: [1]ReaderProcessor = undefined,
+        plte_processor: PlteProcessor = .{},
+        processors_buffer: [2]ReaderProcessor = undefined,
 
         const Self = @This();
 
         pub fn get(self: *Self) []ReaderProcessor {
             self.processors_buffer[0] = self.trns_processor.processor();
+            self.processors_buffer[1] = self.plte_processor.processor();
             return self.processors_buffer[0..];
         }
     };
@@ -1123,11 +1204,14 @@ pub fn testWithDir(directory: []const u8) !void {
             if (dir.openFile(tst_data_name[0..12], .{ .mode = .read_only })) |tdata| {
                 defer tdata.close();
                 var treader = tdata.reader();
-                var expected_pixel_format = treader.readIntLittle(u32);
                 var expected_md5 = [_]u8{0} ** 16;
-                try treader.readNoEof(expected_md5[0..]);
-                try std.testing.expectEqual(expected_pixel_format, @enumToInt(result));
+                var read_buffer = [_]u8{0} ** 50;
+                var str_format = try treader.readUntilDelimiter(read_buffer[0..], '\n');
+                var expected_pixel_format = std.meta.stringToEnum(PixelFormat, str_format).?;
+                var str_md5 = try treader.readUntilDelimiterOrEof(read_buffer[0..], '\n');
+                _ = try std.fmt.hexToBytes(expected_md5[0..], str_md5.?);
                 try std.testing.expectEqualSlices(u8, expected_md5[0..], md5_val[0..]);
+                try std.testing.expectEqual(expected_pixel_format, std.meta.activeTag(result));
             } else |_| {
                 // If there is no test data assume test is correct and write it out
                 try writeTestData(dir, tst_data_name[0..12], &result, md5_val[0..]);
@@ -1146,6 +1230,5 @@ fn writeTestData(dir: *std.fs.Dir, tst_data_name: []const u8, result: *PixelStor
     var toutput = try dir.createFile(tst_data_name, .{});
     defer toutput.close();
     var writer = toutput.writer();
-    try writer.writeIntLittle(u32, @enumToInt(result.*));
-    try writer.writeAll(md5_val);
+    try writer.print("{s}\n{s}", .{ @tagName(result.*), std.fmt.fmtSliceHexUpper(md5_val) });
 }
