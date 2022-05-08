@@ -179,11 +179,12 @@ fn Reader(comptime is_from_file: bool) type {
         /// Loads the png image using the given allocator and options.
         /// The options allow you to pass in a custom allocator for temporary allocations.
         /// By default it will use a fixed buffer on stack for temporary allocations.
-        /// You can also pass in a custom array of chunk processors. By default empty array
-        /// will mean you want a set of default processors which at the moment are:
+        /// You can also pass in an array of chunk processors. You can use def_processors
+        /// array if you want to use these default set of processors:
         /// 1. tRNS processor that decodes the tRNS chunk if it exists into an alpha channel
-        /// 2. PLTE processor that decodes the indexed image with a palette into RGB image.
-        /// If you really don't want any processing pass in the `no_processors` in processors array.
+        /// 2. PLTE processor that decodes the indexed image with a palette into a RGB image.
+        /// If you want default processors with default temp allocator you can just pass
+        /// predefined def_options. If you just pass .{} no processors will be used.
         pub fn load(self: *Self, allocator: Allocator, options: ReaderOptions) ImageParsingError!PixelStorage {
             const header = try self.loadHeader();
             return try self.loadWithHeader(&header, allocator, options);
@@ -198,11 +199,6 @@ fn Reader(comptime is_from_file: bool) type {
             options: ReaderOptions,
         ) ImageParsingError!PixelStorage {
             var opts = options;
-            // Empty processors array means you want to use default processors.
-            if (options.processors.len == 0) {
-                var trnsProcessor = TrnsProcessor{};
-                opts.processors = &.{trnsProcessor.processor()};
-            }
             if (options.temp_allocator != null) {
                 return try doLoad(self, header, allocator, &opts);
             }
@@ -825,12 +821,17 @@ pub const ReaderOptions = struct {
     /// reduce memory fragmentation and freed internally.
     temp_allocator: ?Allocator = null,
 
-    // We need default to be no processors so they are not even compiled in if not used
-    // and we need to instantiate them only if they are used.
+    /// Default is no processors so they are not even compiled in if not used.
+    /// If you want a default set of processors you can pass in predefined
+    /// def_processors array or just use predefined def_options.
     processors: []ReaderProcessor = &[_]ReaderProcessor{},
 };
 
-pub var no_processors: []ReaderProcessor = &[_]ReaderProcessor{.{ .id = 0, .context = undefined, .vtable = undefined }};
+var trnsProcessor = TrnsProcessor{};
+
+var def_processors_array = [_]ReaderProcessor{trnsProcessor.processor()};
+pub var def_processors: []ReaderProcessor = def_processors_array[0..];
+pub var def_options = ReaderOptions{ .processors = def_processors_array[0..] };
 
 // ********************* TESTS *********************
 
@@ -1074,7 +1075,7 @@ pub fn testWithDir(directory: []const u8) !void {
                 continue;
             }
 
-            var result = try reader.loadWithHeader(&header, std.testing.allocator, .{});
+            var result = try reader.loadWithHeader(&header, std.testing.allocator, def_options);
             defer result.deinit(std.testing.allocator);
             var result_bytes = result.pixelsAsBytes();
             var md5_val = [_]u8{0} ** 16;
