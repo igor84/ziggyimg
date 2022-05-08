@@ -686,7 +686,7 @@ pub const TrnsProcessor = struct {
         // We ignore if we encounter this chunk with color_type that already has alpha
         var result_format = data.current_format;
         if (self.processed) {
-            _ = try data.raw_reader.readNoAlloc(data.chunk_length + @sizeOf(u32)); // Skip invalid
+            try data.raw_reader.seekBy(data.chunk_length + @sizeOf(u32)); // Skip invalid
             return result_format;
         }
         switch (data.header.color_type) {
@@ -695,7 +695,7 @@ pub const TrnsProcessor = struct {
                     self.trns_data = .{ .gray = try data.raw_reader.readIntBig(u16) };
                     result_format = if (data.header.bit_depth == 16) .grayscale16Alpha else .grayscale8Alpha;
                 } else {
-                    _ = try data.raw_reader.readNoAlloc(data.chunk_length); // Skip invalid
+                    try data.raw_reader.seekBy(data.chunk_length); // Skip invalid
                 }
             },
             .indexed => {
@@ -704,7 +704,7 @@ pub const TrnsProcessor = struct {
                     const filled = try data.raw_reader.read(self.trns_data.index_alpha);
                     if (filled != self.trns_data.index_alpha.len) return error.EndOfStream;
                 } else {
-                    _ = try data.raw_reader.readNoAlloc(data.chunk_length); // Skip invalid
+                    try data.raw_reader.seekBy(data.chunk_length); // Skip invalid
                 }
             },
             .rgb_color => {
@@ -712,13 +712,13 @@ pub const TrnsProcessor = struct {
                     self.trns_data = .{ .rgb = (try data.raw_reader.readStruct(color.Rgb48)).* };
                     result_format = if (data.header.bit_depth == 16) .rgba64 else .rgba32;
                 } else {
-                    _ = try data.raw_reader.readNoAlloc(data.chunk_length); // Skip invalid
+                    try data.raw_reader.seekBy(data.chunk_length); // Skip invalid
                 }
             },
-            else => _ = try data.raw_reader.readNoAlloc(data.chunk_length), // Skip invalid
+            else => try data.raw_reader.seekBy(data.chunk_length), // Skip invalid
         }
         // Read but ignore Crc since this is not critical chunk
-        _ = try data.raw_reader.readNoAlloc(@sizeOf(u32));
+        try data.raw_reader.seekBy(@sizeOf(u32));
         return result_format;
     }
 
