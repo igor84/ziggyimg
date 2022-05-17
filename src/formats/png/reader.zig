@@ -90,6 +90,7 @@ fn Reader(comptime is_from_file: bool) type {
         raw_reader: *RawReader,
         processors: []ReaderProcessor,
         chunk_process_data: *ChunkProcessData,
+        remaining_chunk_length: u32,
         crc: Crc32,
 
         const Self = @This();
@@ -105,23 +106,22 @@ fn Reader(comptime is_from_file: bool) type {
                 .raw_reader = reader,
                 .processors = processors,
                 .chunk_process_data = chunk_process_data,
+                .remaining_chunk_length = chunk_process_data.chunk_length,
                 .crc = crc,
             };
         }
 
         fn read(self: *Self, dest: []u8) ImageParsingError!usize {
-            var chunk_length = self.chunk_process_data.chunk_length;
-
-            if (chunk_length == 0) return 0;
+            if (self.remaining_chunk_length == 0) return 0;
             const new_dest = dest;
 
             var to_read = new_dest.len;
-            if (to_read > chunk_length) to_read = chunk_length;
+            if (to_read > self.remaining_chunk_length) to_read = self.remaining_chunk_length;
             const read_count = try self.raw_reader.read(new_dest[0..to_read]);
-            chunk_length -= @intCast(u32, read_count);
+            self.remaining_chunk_length -= @intCast(u32, read_count);
             self.crc.update(new_dest[0..read_count]);
 
-            if (chunk_length == 0) {
+            if (self.remaining_chunk_length == 0) {
                 // First read and check CRC of just finished chunk
                 const expected_crc = try self.raw_reader.readIntBig(u32);
                 if (self.crc.final() != expected_crc) return error.InvalidData;
@@ -134,14 +134,12 @@ fn Reader(comptime is_from_file: bool) type {
                 // Try to load the next IDAT chunk
                 const chunk = try self.raw_reader.readStruct(png.ChunkHeader);
                 if (chunk.type == std.mem.bytesToValue(u32, "IDAT")) {
-                    chunk_length = chunk.length();
+                    self.remaining_chunk_length = chunk.length();
                 } else {
                     // Return to the start of the next chunk so code in main struct can read it
                     try self.raw_reader.seekBy(-@sizeOf(png.ChunkHeader));
                 }
             }
-
-            self.chunk_process_data.chunk_length = chunk_length;
 
             return read_count;
         }
@@ -461,14 +459,11 @@ fn Reader(comptime is_from_file: bool) type {
                 }
             }
 
-            if (chunk_process_data.chunk_length > 0) {
-                // Just make sure zip stream gets to its end
-                var buf: [8]u8 = undefined;
-                _ = decompressStream.read(buf[0..]) catch return error.InvalidData;
-            }
+            // Just make sure zip stream gets to its end
+            var buf: [8]u8 = undefined;
+            var shouldBeZero = decompressStream.read(buf[0..]) catch return error.InvalidData;
 
-            // Assert that the last IDAT chunk is read to the end
-            std.debug.assert(chunk_process_data.chunk_length == 0);
+            std.debug.assert(shouldBeZero == 0);
 
             return result;
         }
