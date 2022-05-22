@@ -12,7 +12,7 @@ const isChunkCritical = png_reader.isChunkCritical;
 pub const PngInfoOptions = struct {
     processor: Self = init(std.io.getStdOut().writer()),
     processors: [1]png_reader.ReaderProcessor = undefined,
-    tmp_buffer: [800 * 1024]u8 = undefined,
+    tmp_buffer: [png_reader.required_temp_bytes]u8 = undefined,
     fb_allocator: std.heap.FixedBufferAllocator = undefined,
 
     pub fn get(self: *@This()) png_reader.ReaderOptions {
