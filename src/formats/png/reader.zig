@@ -68,7 +68,7 @@ fn Reader(comptime is_from_file: bool) type {
             for (processors) |*processor| {
                 if (processor.id == id) {
                     const new_format = try processor.processChunk(chunk_process_data);
-                    std.debug.assert(new_format.getPixelStride() >= chunk_process_data.current_format.getPixelStride());
+                    std.debug.assert(new_format.pixelStride() >= chunk_process_data.current_format.pixelStride());
                     chunk_process_data.current_format = new_format;
                     if (!processed) {
                         // For non critical chunks we only allow one processor so we break after the first one
@@ -258,7 +258,7 @@ fn Reader(comptime is_from_file: bool) type {
                         if (length > header.maxPaletteSize()) return error.InvalidData;
                         if (data_found) {
                             // If IDAT was already processed we skip and ignore this palette
-                            _ = try self.raw_reader.readNoAlloc(chunk_length + @sizeOf(u32));
+                            _ = try self.raw_reader.seekBy(chunk_length + @sizeOf(u32));
                         } else {
                             if (!is_from_file) {
                                 const palette_bytes = try self.raw_reader.readNoAlloc(chunk_length);
@@ -335,7 +335,7 @@ fn Reader(comptime is_from_file: bool) type {
             var prev_row = tmp_buffer[0..virtual_line_bytes];
             var current_row = tmp_buffer[virtual_line_bytes .. 2 * virtual_line_bytes];
             const pixel_stride = @intCast(u8, result_line_bytes / width);
-            std.debug.assert(pixel_stride == dest_format.getPixelStride());
+            std.debug.assert(pixel_stride == dest_format.pixelStride());
 
             var process_row_data = RowProcessData{
                 .dest_row = undefined,
@@ -445,7 +445,7 @@ fn Reader(comptime is_from_file: bool) type {
                             dest[start_byte..end_byte],
                             process_row_data.dest_row,
                             deinterlace_bit_depth,
-                            channel_count,
+                            result_format.channelCount(),
                             deinterlace_stride,
                             is_little_endian,
                         );
@@ -1205,8 +1205,8 @@ pub fn testWithDir(directory: []const u8) !void {
                 var expected_pixel_format = std.meta.stringToEnum(PixelFormat, str_format).?;
                 var str_md5 = try treader.readUntilDelimiterOrEof(read_buffer[0..], '\n');
                 _ = try std.fmt.hexToBytes(expected_md5[0..], str_md5.?);
-                try std.testing.expectEqualSlices(u8, expected_md5[0..], md5_val[0..]);
                 try std.testing.expectEqual(expected_pixel_format, std.meta.activeTag(result));
+                try std.testing.expectEqualSlices(u8, expected_md5[0..], md5_val[0..]); // catch std.debug.print("MD5 Expected: {s} Got {s}\n", .{std.fmt.fmtSliceHexUpper(expected_md5[0..]), std.fmt.fmtSliceHexUpper(md5_val[0..])});
             } else |_| {
                 // If there is no test data assume test is correct and write it out
                 try writeTestData(dir, tst_data_name[0..12], &result, md5_val[0..]);

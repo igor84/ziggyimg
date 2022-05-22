@@ -48,7 +48,7 @@ pub const PixelFormat = enum(u32) {
         return @enumToInt(self) & 0xff == 0x10;
     }
 
-    pub fn getPixelStride(self: Self) u8 {
+    pub fn pixelStride(self: Self) u8 {
         // Using bit manipulations of values is not really faster than this switch
         return switch (self) {
             .index1, .index2, .index4, .index8, .grayscale1, .grayscale2, .grayscale4, .grayscale8 => 1,
@@ -58,6 +58,15 @@ pub const PixelFormat = enum(u32) {
             .rgb48 => 6,
             .rgba64 => 8,
             .float32 => 16,
+        };
+    }
+
+    pub fn channelCount(self: Self) u8 {
+        return switch (self) {
+            .grayscale8Alpha, .grayscale16Alpha => 2,
+            .rgb565, .rgb555, .rgb24, .bgr24, .rgb48 => 3,
+            .rgba32, .bgra32, .rgba64, .float32 => 4,
+            else => 1,
         };
     }
 };
