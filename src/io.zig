@@ -46,6 +46,15 @@ pub const ImageReader = union(enum) {
         }
     }
 
+    pub fn readNoInline(self: *Self, buf: []u8) ImageReadError!usize {
+        switch (self.*) {
+            .buffer => |*b| return b.read(buf),
+            .file => |*f| return f.read(buf),
+            .bufferp => |b| return b.read(buf),
+            .filep => |f| return f.read(buf),
+        }
+    }
+
     pub inline fn readStruct(self: *Self, comptime T: type) ImageReadError!*const T {
         switch (self.*) {
             .buffer => |*b| return b.readStruct(T),
@@ -89,6 +98,12 @@ pub const ImageReader = union(enum) {
             .bufferp => |b| return b.seekBy(amt),
             .filep => |f| return f.seekBy(amt),
         }
+    }
+
+    pub const Reader = std.io.Reader(*Self, ImageReadError, readNoInline);
+
+    pub fn reader(self: *Self) Reader {
+        return .{ .context = self };
     }
 };
 

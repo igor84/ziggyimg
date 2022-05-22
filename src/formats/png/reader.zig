@@ -20,6 +20,9 @@ const RawBufferReader = imgio.BufferReader;
 pub const FileReader = Reader(true);
 pub const BufferReader = Reader(false);
 
+pub const any_chunk_type = "_ANY";
+pub const any_chunk_type_id = asU32(any_chunk_type);
+
 const ProfData = struct {
     name: []const u8 = &[_]u8{},
     count: u32 = 0,
@@ -57,16 +60,24 @@ pub fn fromMemory(buffer: []const u8) BufferReader {
     };
 }
 
+pub fn isChunkCritical(id: u32) bool {
+    return (id & 0x20) == 0;
+}
+
+inline fn asU32(str: *const [4:0]u8) u32 {
+    return std.mem.bytesToValue(u32, str);
+}
+
 fn Reader(comptime is_from_file: bool) type {
     const RawReader = if (is_from_file) RawFileReader else RawBufferReader;
 
     const Common = struct {
-        pub fn processChunk(processors: []ReaderProcessor, id: u32, chunk_process_data: *ChunkProcessData) ImageParsingError!void {
-            const l = id & 0xff;
+        pub fn processChunk(processors: []ReaderProcessor, chunk_process_data: *ChunkProcessData) ImageParsingError!void {
+            const id = chunk_process_data.chunk_id;
             // Critical chunks are already processed but we can still notify any number of processors about them
-            var processed = l >= 'A' and l <= 'Z';
+            var processed = isChunkCritical(id);
             for (processors) |*processor| {
-                if (processor.id == id) {
+                if (processor.id == id or processor.id == any_chunk_type_id) {
                     const new_format = try processor.processChunk(chunk_process_data);
                     std.debug.assert(new_format.pixelStride() >= chunk_process_data.current_format.pixelStride());
                     chunk_process_data.current_format = new_format;
@@ -94,6 +105,8 @@ fn Reader(comptime is_from_file: bool) type {
         crc: Crc32,
 
         const Self = @This();
+        const idat = "IDAT";
+        const idat_id = asU32(idat);
 
         fn init(
             reader: *RawReader,
@@ -101,7 +114,7 @@ fn Reader(comptime is_from_file: bool) type {
             chunk_process_data: *ChunkProcessData,
         ) Self {
             var crc = Crc32.init();
-            crc.update("IDAT");
+            crc.update(idat);
             return .{
                 .raw_reader = reader,
                 .processors = processors,
@@ -126,14 +139,14 @@ fn Reader(comptime is_from_file: bool) type {
                 const expected_crc = try self.raw_reader.readIntBig(u32);
                 if (self.crc.final() != expected_crc) return error.InvalidData;
 
-                try Common.processChunk(self.processors, png.HeaderData.chunk_type_id, self.chunk_process_data);
+                try Common.processChunk(self.processors, self.chunk_process_data);
 
                 self.crc = Crc32.init();
-                self.crc.update("IDAT");
+                self.crc.update(idat);
 
                 // Try to load the next IDAT chunk
                 const chunk = try self.raw_reader.readStruct(png.ChunkHeader);
-                if (chunk.type == std.mem.bytesToValue(u32, "IDAT")) {
+                if (chunk.type == idat_id) {
                     self.remaining_chunk_length = chunk.length();
                 } else {
                     // Return to the start of the next chunk so code in main struct can read it
@@ -204,10 +217,6 @@ fn Reader(comptime is_from_file: bool) type {
             return try doLoad(self, header, allocator, &opts);
         }
 
-        fn asU32(str: *const [4:0]u8) u32 {
-            return std.mem.bytesToValue(u32, str);
-        }
-
         fn doLoad(
             self: *Self,
             header: *const png.HeaderData,
@@ -220,15 +229,18 @@ fn Reader(comptime is_from_file: bool) type {
 
             var chunk_process_data = ChunkProcessData{
                 .raw_reader = ImageReader.wrap(&self.raw_reader),
+                .chunk_id = png.HeaderData.chunk_type_id,
                 .chunk_length = @sizeOf(png.HeaderData),
                 .current_format = header.getPixelFormat(),
                 .header = header,
                 .temp_allocator = options.temp_allocator,
             };
-            try Common.processChunk(options.processors, png.HeaderData.chunk_type_id, &chunk_process_data);
+            try Common.processChunk(options.processors, &chunk_process_data);
 
             while (true) {
-                const chunk = try self.raw_reader.readStruct(png.ChunkHeader);
+                const chunk = (try self.raw_reader.readStruct(png.ChunkHeader));
+                chunk_process_data.chunk_id = chunk.type;
+                chunk_process_data.chunk_length = chunk.length();
 
                 switch (chunk.type) {
                     asU32("IHDR") => {
@@ -237,14 +249,12 @@ fn Reader(comptime is_from_file: bool) type {
                     asU32("IEND") => {
                         if (!data_found) return error.InvalidData;
                         _ = try self.raw_reader.readInt(u32); // Read and ignore the crc
-                        chunk_process_data.chunk_length = chunk.length();
-                        try Common.processChunk(options.processors, chunk.type, &chunk_process_data);
+                        try Common.processChunk(options.processors, &chunk_process_data);
                         return result;
                     },
                     asU32("IDAT") => {
                         if (data_found) return error.InvalidData;
                         if (header.color_type == .indexed and palette.len == 0) return error.InvalidData;
-                        chunk_process_data.chunk_length = chunk.length();
                         result = try self.readAllData(header, palette, allocator, options, &chunk_process_data);
                         data_found = true;
                     },
@@ -252,7 +262,7 @@ fn Reader(comptime is_from_file: bool) type {
                         if (!header.allowsPalette()) return error.InvalidData;
                         if (palette.len > 0) return error.InvalidData;
                         // We ignore if tRNS is already found
-                        const chunk_length = chunk.length();
+                        const chunk_length = chunk_process_data.chunk_length;
                         if (chunk_length % 3 != 0) return error.InvalidData;
                         const length = chunk_length / 3;
                         if (length > header.maxPaletteSize()) return error.InvalidData;
@@ -275,13 +285,11 @@ fn Reader(comptime is_from_file: bool) type {
                             crc.update(mem.sliceAsBytes(palette));
                             const actual_crc = crc.final();
                             if (expected_crc != actual_crc) return error.InvalidData;
-                            chunk_process_data.chunk_length = chunk_length;
-                            try Common.processChunk(options.processors, chunk.type, &chunk_process_data);
+                            try Common.processChunk(options.processors, &chunk_process_data);
                         }
                     },
                     else => {
-                        chunk_process_data.chunk_length = chunk.length();
-                        try Common.processChunk(options.processors, chunk.type, &chunk_process_data);
+                        try Common.processChunk(options.processors, &chunk_process_data);
                     },
                 }
             }
@@ -579,6 +587,7 @@ fn Reader(comptime is_from_file: bool) type {
 
 pub const ChunkProcessData = struct {
     raw_reader: imgio.ImageReader,
+    chunk_id: u32,
     chunk_length: u32,
     current_format: PixelFormat,
     header: *const png.HeaderData,
@@ -1156,20 +1165,20 @@ fn testHeaderWithInvalidValue(buf: []u8, pos: usize, val: u8) !void {
 }
 
 test "official test suite" {
-    try testWithDir("../ziggyimg-tests/fixtures/png/");
+    try testWithDir("../ziggyimg-tests/fixtures/png/", true);
 }
 
 // Useful to quickly test performance on full dir of images
-pub fn testWithDir(directory: []const u8) !void {
+pub fn testWithDir(directory: []const u8, testMd5Sig: bool) !void {
     var testdir = std.fs.cwd().openDir(directory, .{ .access_sub_paths = false, .iterate = true, .no_follow = true }) catch null;
     if (testdir) |*dir| {
         defer dir.close();
         var it = dir.iterate();
-        std.debug.print("\n", .{});
+        if (testMd5Sig) std.debug.print("\n", .{});
         while (try it.next()) |entry| {
             if (entry.kind != .File or !std.mem.eql(u8, std.fs.path.extension(entry.name), ".png")) continue;
 
-            std.debug.print("Testing file {s}\n", .{entry.name});
+            if (testMd5Sig) std.debug.print("Testing file {s}\n", .{entry.name});
             var tst_file = try dir.openFile(entry.name, .{ .mode = .read_only });
             defer tst_file.close();
             var reader = fromFile(tst_file);
@@ -1187,6 +1196,9 @@ pub fn testWithDir(directory: []const u8) !void {
 
             var result = try reader.loadWithHeader(&header, std.testing.allocator, def_options.get());
             defer result.deinit(std.testing.allocator);
+
+            if (!testMd5Sig) continue;
+
             var result_bytes = result.pixelsAsBytes();
             var md5_val = [_]u8{0} ** 16;
             std.crypto.hash.Md5.hash(result_bytes, &md5_val, .{});
